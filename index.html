@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Presensi Guru</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #e9eef2;
+    --card: #ffffff;
+    --ink: #14213d;
+    --muted: #5b6577;
+    --line: #cfd8e0;
+    --accent: #1b6ca8;
+    --ok: #1f7a4d;
+    --ok-bg: #e3f4ea;
+    --err: #b3261e;
+    --err-bg: #fbe7e5;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main {
+    width: 100%;
+    max-width: 380px;
+    background: var(--card);
+    border-radius: 14px;
+    padding: 24px 22px 26px;
+    box-shadow: 0 1px 2px rgba(20,33,61,.08), 0 8px 24px rgba(20,33,61,.08);
+  }
+  h1 { margin: 0 0 2px; font-size: 1.5rem; font-weight: 800; letter-spacing: -.01em; }
+  .clock { margin: 0 0 20px; color: var(--muted); font-size: .9rem; }
+  label { display: block; margin: 14px 0 6px; font-size: .85rem; font-weight: 600; }
+  input {
+    width: 100%;
+    padding: 12px;
+    font: inherit;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--ink);
+  }
+  input:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #8ec1e6; outline-offset: 2px; }
+  button {
+    padding: 13px 10px;
+    font: inherit;
+    font-weight: 600;
+    border-radius: 8px;
+    border: 1.5px solid var(--accent);
+    cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: wait; }
+  .primary { background: var(--accent); color: #fff; }
+  .secondary { background: #fff; color: var(--accent); }
+  .full { width: 100%; margin-top: 16px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  .sapa { margin: 0; font-size: 1.1rem; font-weight: 600; }
+  .sub { margin: 6px 0 0; font-size: .9rem; color: var(--muted); line-height: 1.45; }
+  .link {
+    margin-top: 18px;
+    padding: 8px 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-weight: 400;
+    font-size: .9rem;
+    text-decoration: underline;
+  }
+  details {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+  }
+  summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+  #camera {
+    display: none;
+    margin-top: 18px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #14213d;
+    aspect-ratio: 1;
+  }
+  #camera.on { display: block; }
+  video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); display: block; }
+  #status {
+    margin-top: 18px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: .9rem;
+    line-height: 1.45;
+    display: none;
+  }
+  #status.info { display: block; background: #eef3f7; color: var(--ink); }
+  #status.ok   { display: block; background: var(--ok-bg); color: var(--ok); }
+  #status.err  { display: block; background: var(--err-bg); color: var(--err); }
+  .hint { margin: 16px 0 0; font-size: .78rem; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Presensi Guru</h1>
+  <p class="clock" id="clock" aria-hidden="true"></p>
+
+  <!-- Langkah 1: masuk -->
+  <section id="login">
+    <label for="nip">NIP</label>
+    <input id="nip" inputmode="numeric" autocomplete="username" placeholder="Masukkan NIP">
+
+    <label for="pin">PIN</label>
+    <input id="pin" type="password" inputmode="numeric" maxlength="12" autocomplete="current-password" placeholder="Masukkan PIN">
+
+    <button class="primary full" id="btnLogin">Lanjut</button>
+    <p class="sub">Lupa PIN? Hubungi admin sekolah untuk mengatur ulang PIN Anda.</p>
+  </section>
+
+  <!-- Langkah 2: setelah masuk -->
+  <section id="sesi" hidden>
+    <p class="sapa" id="sapa"></p>
+
+    <div id="aksiPresensi" hidden>
+      <p class="sub">Pilih jenis presensi.</p>
+      <div class="actions">
+        <button class="primary" id="btnMasuk">Presensi masuk</button>
+        <button class="secondary" id="btnPulang">Presensi pulang</button>
+      </div>
+    </div>
+
+    <div id="aksiDaftar" hidden>
+      <p class="sub">Wajah Anda belum terdaftar. Daftarkan wajah dulu sebelum presensi.</p>
+      <button class="primary full" id="btnDaftar">Daftarkan wajah saya</button>
+    </div>
+
+    <details id="menuPin">
+      <summary>Ganti PIN saya</summary>
+      <label for="pinBaru">PIN baru (6–12 angka)</label>
+      <input id="pinBaru" type="password" inputmode="numeric" maxlength="12" autocomplete="new-password">
+      <label for="pinBaru2">Ulangi PIN baru</label>
+      <input id="pinBaru2" type="password" inputmode="numeric" maxlength="12" autocomplete="new-password">
+      <button class="secondary full" id="btnGantiPin">Simpan PIN baru</button>
+    </details>
+
+    <details id="adminMenu" hidden>
+      <summary>Menu admin</summary>
+      <p class="sub">Isi NIP guru, lalu pilih tindakan. Untuk wajah, guru yang bersangkutan harus ada di depan kamera.</p>
+      <label for="nipTarget">NIP guru</label>
+      <input id="nipTarget" inputmode="numeric" placeholder="NIP guru">
+
+      <button class="secondary full" id="btnAdmin">Daftarkan / daftar ulang wajah</button>
+
+      <label for="pinTarget">PIN baru untuk guru (6–12 angka)</label>
+      <input id="pinTarget" type="password" inputmode="numeric" maxlength="12" autocomplete="new-password">
+      <button class="secondary full" id="btnResetPin">Atur ulang PIN guru</button>
+
+      <button class="secondary full" id="btnBukaKunci">Buka kunci akun guru</button>
+    </details>
+
+    <button class="link" id="btnKeluar">Keluar</button>
+  </section>
+
+  <div id="camera"><video id="video" muted playsinline></video></div>
+  <div id="status" role="status" aria-live="polite"></div>
+  <p class="hint">Izinkan akses kamera dan lokasi saat diminta. Data wajah disimpan sebagai angka, bukan foto.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
+<script>
+  // GANTI dengan URL Web App hasil deploy Apps Script (berakhiran /exec)
+  const API_URL = "https://script.google.com/macros/s/ISI_ID_DEPLOYMENT/exec";
+  const MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/";
+
+  const $ = (id) => document.getElementById(id);
+  const video = $("video");
+  const statusEl = $("status");
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  let modelsReady = false;
+  let stream = null;
+  let sesi = null; // { nip, pin, nama, admin, terdaftar } hanya di memori, tidak disimpan
+
+  // ---------- Jam ----------
+  function tick() {
+    $("clock").textContent = new Intl.DateTimeFormat("id-ID", {
+      timeZone: "Asia/Jakarta",
+      weekday: "long", day: "numeric", month: "long", year: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false
+    }).format(new Date()) + " WIB";
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  try { $("nip").value = localStorage.getItem("nip") || ""; } catch (e) {}
+
+  // ---------- UI ----------
+  function show(type, text) { statusEl.className = type; statusEl.textContent = text; }
+  function hideStatus() { statusEl.className = ""; statusEl.textContent = ""; }
+  function setBusy(busy) { document.querySelectorAll("button").forEach((b) => (b.disabled = busy)); }
+  const pinValid = (p) => /^\d{6,12}$/.test(p);
+
+  function tampilSesi() {
+    $("login").hidden = true;
+    $("sesi").hidden = false;
+    $("sapa").textContent = "Halo, " + sesi.nama;
+    $("aksiPresensi").hidden = !sesi.terdaftar;
+    $("aksiDaftar").hidden = sesi.terdaftar;
+    $("adminMenu").hidden = !sesi.admin;
+    hideStatus();
+  }
+
+  function keluar() {
+    sesi = null;
+    ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget"].forEach((id) => ($(id).value = ""));
+    $("menuPin").open = false;
+    $("adminMenu").open = false;
+    $("sesi").hidden = true;
+    $("login").hidden = false;
+    hideStatus();
+  }
+
+  async function kirim(data) {
+    const res = await fetch(API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(data)
+    });
+    return res.json();
+  }
+
+  /** Kirim satu permintaan sederhana (tanpa kamera/lokasi) dan tampilkan hasilnya. */
+  async function panggil(data) {
+    setBusy(true);
+    try {
+      show("info", "Memproses…");
+      const h = await kirim(data);
+      show(h.ok ? "ok" : "err", h.pesan);
+      return h;
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---------- Model & kamera ----------
+  async function loadModels() {
+    if (modelsReady) return;
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+    ]);
+    modelsReady = true;
+  }
+
+  async function startCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Browser ini tidak mendukung kamera.");
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 480 } },
+        audio: false
+      });
+    } catch (err) {
+      throw new Error(err.name === "NotAllowedError"
+        ? "Izin kamera ditolak. Izinkan akses kamera di pengaturan browser, lalu coba lagi."
+        : "Kamera tidak dapat dibuka.");
+    }
+    video.srcObject = stream;
+    await video.play();
+    $("camera").classList.add("on");
+  }
+
+  function stopCamera() {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = null;
+    video.srcObject = null;
+    $("camera").classList.remove("on");
+  }
+
+  // ---------- Deteksi kedip (liveness dasar) ----------
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const ear = (eye) => (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * dist(eye[0], eye[3]));
+  const opts = () => new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+
+  async function tungguKedip(batasMs) {
+    const mulai = Date.now();
+    let pernahTerbuka = false;
+    let pernahTertutup = false;
+    while (Date.now() - mulai < batasMs) {
+      const det = await faceapi.detectSingleFace(video, opts()).withFaceLandmarks();
+      if (det) {
+        const e = (ear(det.landmarks.getLeftEye()) + ear(det.landmarks.getRightEye())) / 2;
+        if (e > 0.26) {
+          if (pernahTertutup) return true;
+          pernahTerbuka = true;
+        } else if (e < 0.22 && pernahTerbuka) {
+          pernahTertutup = true;
+        }
+      }
+      await sleep(40);
+    }
+    return false;
+  }
+
+  async function ambilVektor() {
+    const det = await faceapi.detectSingleFace(video, opts()).withFaceLandmarks().withFaceDescriptor();
+    return det ? Array.from(det.descriptor, (v) => Math.round(v * 10000) / 10000) : null;
+  }
+
+  async function ambilBeberapa(jumlah) {
+    const hasil = [];
+    const mulai = Date.now();
+    while (hasil.length < jumlah && Date.now() - mulai < 15000) {
+      const v = await ambilVektor();
+      if (v) { hasil.push(v); await sleep(500); }
+    }
+    return hasil.length === jumlah ? hasil : null;
+  }
+
+  /** Buka kamera, minta kedip, lalu kembalikan 1 vektor (jumlah=1) atau array vektor (jumlah>1). */
+  async function rekamWajah(jumlah) {
+    show("info", "Memuat pengenal wajah… (pertama kali bisa beberapa detik)");
+    await loadModels();
+
+    show("info", "Membuka kamera…");
+    await startCamera();
+
+    show("info", "Hadapkan wajah ke kamera, lalu kedipkan mata sekali.");
+    if (!(await tungguKedip(20000))) {
+      throw new Error("Kedipan tidak terdeteksi. Pastikan wajah terlihat jelas dan cahaya cukup, lalu coba lagi.");
+    }
+
+    if (jumlah > 1) {
+      show("info", "Tahan posisi, sedang merekam data wajah…");
+      const banyak = await ambilBeberapa(jumlah);
+      if (!banyak) throw new Error("Wajah tidak terbaca stabil. Coba lagi dengan cahaya lebih terang.");
+      return banyak;
+    }
+    const satu = await ambilVektor();
+    if (!satu) throw new Error("Wajah tidak terbaca. Hadap kamera dan coba lagi.");
+    return satu;
+  }
+
+  // ---------- Lokasi ----------
+  function getLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) { reject(new Error("Browser ini tidak mendukung GPS.")); return; }
+      navigator.geolocation.getCurrentPosition(resolve, (err) => {
+        reject(new Error({
+          1: "Izin lokasi ditolak. Izinkan akses lokasi di pengaturan browser, lalu coba lagi.",
+          2: "Lokasi tidak tersedia. Pastikan GPS aktif.",
+          3: "Pengambilan lokasi terlalu lama. Coba lagi di tempat terbuka."
+        }[err.code] || "Gagal mengambil lokasi."));
+      }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    });
+  }
+
+  async function tambahLokasi(data) {
+    show("info", "Mengambil lokasi…");
+    const pos = await getLocation();
+    data.lat = pos.coords.latitude;
+    data.lng = pos.coords.longitude;
+    data.akurasi = pos.coords.accuracy;
+    return data;
+  }
+
+  /** Bungkus satu alur kerja: atur tombol, tampilkan hasil/galat, matikan kamera. */
+  async function jalankan(alur) {
+    setBusy(true);
+    try {
+      const hasil = await alur();
+      show(hasil.ok ? "ok" : "err", hasil.pesan);
+      return hasil;
+    } catch (err) {
+      show("err", err.message || "Gagal. Periksa koneksi internet, lalu coba lagi.");
+      return null;
+    } finally {
+      stopCamera();
+      setBusy(false);
+    }
+  }
+
+  // ---------- Aksi ----------
+  async function login() {
+    const nip = $("nip").value.trim();
+    const pin = $("pin").value.trim();
+    if (!nip || !pin) { show("err", "NIP dan PIN wajib diisi."); return; }
+
+    setBusy(true);
+    try {
+      show("info", "Memeriksa akun…");
+      const h = await kirim({ aksi: "status", nip, pin });
+      if (!h.ok) { show("err", h.pesan); return; }
+      try { localStorage.setItem("nip", nip); } catch (e) {}
+      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar };
+      tampilSesi();
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function presensi(jenis) {
+    await jalankan(async () => {
+      const vektor = await rekamWajah(1);
+      stopCamera();
+      const data = { aksi: "presensi", nip: sesi.nip, pin: sesi.pin, jenis, descriptor: vektor };
+      await tambahLokasi(data);
+      show("info", "Mengirim data…");
+      return kirim(data);
+    });
+  }
+
+  async function daftarSendiri() {
+    const h = await jalankan(async () => {
+      const sampel = await rekamWajah(3);
+      stopCamera();
+      const data = { aksi: "daftar", nip: sesi.nip, pin: sesi.pin, descriptors: sampel };
+      await tambahLokasi(data);
+      show("info", "Mengirim data…");
+      return kirim(data);
+    });
+    if (h && h.ok) {
+      sesi.terdaftar = true;
+      tampilSesi();
+      show("ok", h.pesan);
+    }
+  }
+
+  async function daftarAdmin() {
+    const nipTarget = $("nipTarget").value.trim();
+    if (!nipTarget) { show("err", "Masukkan NIP guru."); return; }
+
+    // 1. Cek guru yang dituju dan status wajahnya
+    let target = null;
+    setBusy(true);
+    try {
+      show("info", "Memeriksa data guru…");
+      const s = await kirim({ aksi: "status", nip: sesi.nip, pin: sesi.pin, nipTarget });
+      if (!s.ok) { show("err", s.pesan); return; }
+      target = s.target;
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      return;
+    } finally {
+      setBusy(false);
+    }
+
+    // 2. Konfirmasi
+    const tanya = target.terdaftar
+      ? "Wajah " + target.nama + " sudah terdaftar. Daftar ulang dan ganti data lama?"
+      : "Daftarkan wajah untuk " + target.nama + "?";
+    if (!confirm(tanya + "\n\nPastikan yang menghadap kamera adalah guru tersebut.")) {
+      show("info", "Dibatalkan.");
+      return;
+    }
+
+    // 3. Rekam dan kirim
+    const h = await jalankan(async () => {
+      const sampel = await rekamWajah(3);
+      stopCamera();
+      const data = { aksi: "daftar_admin", nip: sesi.nip, pin: sesi.pin, nipTarget, descriptors: sampel };
+      await tambahLokasi(data);
+      show("info", "Mengirim data…");
+      return kirim(data);
+    });
+
+    if (h && h.ok) {
+      $("nipTarget").value = "";
+      if (nipTarget === sesi.nip) {
+        sesi.terdaftar = true;
+        tampilSesi();
+        show("ok", h.pesan);
+      }
+    }
+  }
+
+  async function gantiPin() {
+    const baru = $("pinBaru").value.trim();
+    const ulang = $("pinBaru2").value.trim();
+    if (!pinValid(baru)) { show("err", "PIN baru harus 6 sampai 12 angka."); return; }
+    if (baru !== ulang) { show("err", "Konfirmasi PIN baru tidak sama."); return; }
+
+    const h = await panggil({ aksi: "ganti_pin", nip: sesi.nip, pin: sesi.pin, pinBaru: baru });
+    if (h && h.ok) {
+      sesi.pin = baru;
+      $("pinBaru").value = "";
+      $("pinBaru2").value = "";
+    }
+  }
+
+  async function aturPinGuru() {
+    const nipTarget = $("nipTarget").value.trim();
+    const pinBaru = $("pinTarget").value.trim();
+    if (!nipTarget) { show("err", "Masukkan NIP guru."); return; }
+    if (!pinValid(pinBaru)) { show("err", "PIN baru harus 6 sampai 12 angka."); return; }
+
+    const h = await panggil({ aksi: "reset_pin", nip: sesi.nip, pin: sesi.pin, nipTarget, pinBaru });
+    if (h && h.ok) {
+      $("pinTarget").value = "";
+      if (nipTarget === sesi.nip) sesi.pin = pinBaru;
+    }
+  }
+
+  async function bukaKunci() {
+    const nipTarget = $("nipTarget").value.trim();
+    if (!nipTarget) { show("err", "Masukkan NIP guru."); return; }
+    await panggil({ aksi: "buka_kunci", nip: sesi.nip, pin: sesi.pin, nipTarget });
+  }
+
+  $("btnLogin").addEventListener("click", login);
+  $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+  $("btnMasuk").addEventListener("click", () => presensi("Masuk"));
+  $("btnPulang").addEventListener("click", () => presensi("Pulang"));
+  $("btnDaftar").addEventListener("click", daftarSendiri);
+  $("btnGantiPin").addEventListener("click", gantiPin);
+  $("btnAdmin").addEventListener("click", daftarAdmin);
+  $("btnResetPin").addEventListener("click", aturPinGuru);
+  $("btnBukaKunci").addEventListener("click", bukaKunci);
+  $("btnKeluar").addEventListener("click", keluar);
+</script>
+</body>
+</html>
