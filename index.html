@@ -294,26 +294,47 @@
   // ---------- Deteksi kedip (liveness dasar) ----------
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
   const ear = (eye) => (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * dist(eye[0], eye[3]));
-  const opts = () => new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+  const opts = () => new faceapi.TinyFaceDetectorOptions({ inputSize: 192, scoreThreshold: 0.4 });
 
   async function tungguKedip(batasMs) {
     const mulai = Date.now();
-    let pernahTerbuka = false;
-    let pernahTertutup = false;
+    const riwayat = [];            // EAR terbaru, dipakai untuk menaksir ukuran mata terbuka
+    let frame = 0, terlihat = 0, minE = 9, maxE = 0;
+    let tertutup = false;
+    let uiTerakhir = 0;
+
     while (Date.now() - mulai < batasMs) {
       const det = await faceapi.detectSingleFace(video, opts()).withFaceLandmarks();
+      frame++;
       if (det) {
+        terlihat++;
         const e = (ear(det.landmarks.getLeftEye()) + ear(det.landmarks.getRightEye())) / 2;
-        if (e > 0.26) {
-          if (pernahTertutup) return true;
-          pernahTerbuka = true;
-        } else if (e < 0.22 && pernahTerbuka) {
-          pernahTertutup = true;
+        minE = Math.min(minE, e);
+        maxE = Math.max(maxE, e);
+        riwayat.push(e);
+        if (riwayat.length > 20) riwayat.shift();
+
+        if (riwayat.length >= 6) {
+          // ukuran mata terbuka = persentil 80 dari riwayat, jadi menyesuaikan tiap orang
+          const urut = riwayat.slice().sort((a, b) => a - b);
+          const terbuka = urut[Math.floor(urut.length * 0.8)];
+          if (e < terbuka * 0.78) tertutup = true;
+          else if (tertutup && e > terbuka * 0.9) return { ok: true };
         }
       }
-      await sleep(40);
+
+      if (Date.now() - uiTerakhir > 500) {
+        uiTerakhir = Date.now();
+        show("info", det
+          ? "Wajah terlihat. Pejamkan mata sebentar, lalu buka."
+          : "Wajah belum terlihat. Hadapkan wajah ke kamera dan cari tempat yang terang.");
+      }
+      await sleep(30);
     }
-    return false;
+
+    const info = "frame " + frame + ", wajah terlihat " + terlihat +
+      (terlihat ? ", EAR " + minE.toFixed(2) + "–" + maxE.toFixed(2) : "");
+    return { ok: false, info };
   }
 
   async function ambilVektor() {
@@ -339,9 +360,10 @@
     show("info", "Membuka kamera…");
     await startCamera();
 
-    show("info", "Hadapkan wajah ke kamera, lalu kedipkan mata sekali.");
-    if (!(await tungguKedip(20000))) {
-      throw new Error("Kedipan tidak terdeteksi. Pastikan wajah terlihat jelas dan cahaya cukup, lalu coba lagi.");
+    show("info", "Hadapkan wajah ke kamera, lalu pejamkan mata sebentar.");
+    const kedip = await tungguKedip(20000);
+    if (!kedip.ok) {
+      throw new Error("Kedipan tidak terdeteksi. Pastikan wajah terlihat jelas dan cahaya cukup, lalu coba lagi. (" + kedip.info + ")");
     }
 
     if (jumlah > 1) {
