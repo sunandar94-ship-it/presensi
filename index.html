@@ -291,50 +291,80 @@
     $("camera").classList.remove("on");
   }
 
-  // ---------- Deteksi kedip (liveness dasar) ----------
+  // ---------- Tantangan gerak acak (liveness dasar) ----------
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const ear = (eye) => (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * dist(eye[0], eye[3]));
   const opts = () => new faceapi.TinyFaceDetectorOptions({ inputSize: 192, scoreThreshold: 0.4 });
+  const median = (arr) => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length / 2)];
 
-  async function tungguKedip(batasMs) {
+  /** yaw: posisi hidung di antara tepi wajah (sekitar 0.5 jika lurus). mar: seberapa terbuka mulut. */
+  function ukurWajah(lm) {
+    const p = lm.positions;
+    return {
+      yaw: (p[30].x - p[0].x) / (p[16].x - p[0].x || 1),
+      mar: dist(p[62], p[66]) / (dist(p[60], p[64]) || 1)
+    };
+  }
+
+  /** Minta satu gerakan acak: tengok sedikit ke samping, atau buka mulut. */
+  async function tungguTantangan(batasMs) {
+    const jenis = Math.random() < 0.5 ? "tengok" : "mulut";
     const mulai = Date.now();
-    const riwayat = [];            // EAR terbaru, dipakai untuk menaksir ukuran mata terbuka
-    let frame = 0, terlihat = 0, minE = 9, maxE = 0;
-    let tertutup = false;
+    const netral = [];
+    let dasar = null;
+    let fase = "netral";
+    let berturut = 0;
+    let frame = 0, terlihat = 0, selisihMaks = 0;
     let uiTerakhir = 0;
 
     while (Date.now() - mulai < batasMs) {
       const det = await faceapi.detectSingleFace(video, opts()).withFaceLandmarks();
       frame++;
+      let pesan = "Wajah belum terlihat. Hadapkan wajah ke kamera dan cari tempat yang terang.";
+
       if (det) {
         terlihat++;
-        const e = (ear(det.landmarks.getLeftEye()) + ear(det.landmarks.getRightEye())) / 2;
-        minE = Math.min(minE, e);
-        maxE = Math.max(maxE, e);
-        riwayat.push(e);
-        if (riwayat.length > 20) riwayat.shift();
+        const u = ukurWajah(det.landmarks);
 
-        if (riwayat.length >= 6) {
-          // ukuran mata terbuka = persentil 80 dari riwayat, jadi menyesuaikan tiap orang
-          const urut = riwayat.slice().sort((a, b) => a - b);
-          const terbuka = urut[Math.floor(urut.length * 0.8)];
-          if (e < terbuka * 0.78) tertutup = true;
-          else if (tertutup && e > terbuka * 0.9) return { ok: true };
+        if (fase === "netral") {
+          pesan = "Hadap lurus ke kamera dan tahan sebentar…";
+          if (u.yaw > 0.38 && u.yaw < 0.62) {
+            netral.push(u);
+            if (netral.length >= 6) {
+              dasar = { yaw: median(netral.map((n) => n.yaw)), mar: median(netral.map((n) => n.mar)) };
+              fase = "tantangan";
+            }
+          }
+        } else {
+          const selisih = jenis === "tengok" ? Math.abs(u.yaw - dasar.yaw) : u.mar - dasar.mar;
+          selisihMaks = Math.max(selisihMaks, selisih);
+
+          if (fase === "tantangan") {
+            pesan = jenis === "tengok"
+              ? "Sekarang tengok sedikit ke samping (kiri atau kanan)."
+              : "Sekarang buka mulut lebar-lebar sebentar.";
+            const terpenuhi = jenis === "tengok" ? selisih > 0.12 : selisih > 0.18;
+            berturut = terpenuhi ? berturut + 1 : 0;
+            if (berturut >= 2) fase = "kembali";
+          } else {
+            pesan = "Bagus. Kembali hadap lurus ke kamera.";
+            const kembali = jenis === "tengok" ? selisih < 0.06 : selisih < 0.08;
+            if (kembali) return { ok: true };
+          }
         }
       }
 
-      if (Date.now() - uiTerakhir > 500) {
+      if (Date.now() - uiTerakhir > 400) {
         uiTerakhir = Date.now();
-        show("info", det
-          ? "Wajah terlihat. Pejamkan mata sebentar, lalu buka."
-          : "Wajah belum terlihat. Hadapkan wajah ke kamera dan cari tempat yang terang.");
+        show("info", pesan);
       }
       await sleep(30);
     }
 
-    const info = "frame " + frame + ", wajah terlihat " + terlihat +
-      (terlihat ? ", EAR " + minE.toFixed(2) + "–" + maxE.toFixed(2) : "");
-    return { ok: false, info };
+    return {
+      ok: false,
+      info: "tantangan " + jenis + ", tahap " + fase + ", frame " + frame + ", wajah terlihat " + terlihat +
+            ", perubahan maks " + selisihMaks.toFixed(2)
+    };
   }
 
   async function ambilVektor() {
@@ -352,7 +382,7 @@
     return hasil.length === jumlah ? hasil : null;
   }
 
-  /** Buka kamera, minta kedip, lalu kembalikan 1 vektor (jumlah=1) atau array vektor (jumlah>1). */
+  /** Buka kamera, minta satu gerakan acak, lalu kembalikan 1 vektor (jumlah=1) atau array vektor (jumlah>1). */
   async function rekamWajah(jumlah) {
     show("info", "Memuat pengenal wajah… (pertama kali bisa beberapa detik)");
     await loadModels();
@@ -360,10 +390,10 @@
     show("info", "Membuka kamera…");
     await startCamera();
 
-    show("info", "Hadapkan wajah ke kamera, lalu pejamkan mata sebentar.");
-    const kedip = await tungguKedip(20000);
-    if (!kedip.ok) {
-      throw new Error("Kedipan tidak terdeteksi. Pastikan wajah terlihat jelas dan cahaya cukup, lalu coba lagi. (" + kedip.info + ")");
+    show("info", "Hadapkan wajah ke kamera.");
+    const gerak = await tungguTantangan(25000);
+    if (!gerak.ok) {
+      throw new Error("Gerakan wajah tidak terdeteksi. Pastikan wajah terlihat jelas dan cahaya cukup, lalu coba lagi. (" + gerak.info + ")");
     }
 
     if (jumlah > 1) {
@@ -453,7 +483,6 @@
       const sampel = await rekamWajah(3);
       stopCamera();
       const data = { aksi: "daftar", nip: sesi.nip, pin: sesi.pin, descriptors: sampel };
-      await tambahLokasi(data);
       show("info", "Mengirim data…");
       return kirim(data);
     });
@@ -497,7 +526,6 @@
       const sampel = await rekamWajah(3);
       stopCamera();
       const data = { aksi: "daftar_admin", nip: sesi.nip, pin: sesi.pin, nipTarget, descriptors: sampel };
-      await tambahLokasi(data);
       show("info", "Mengirim data…");
       return kirim(data);
     });
