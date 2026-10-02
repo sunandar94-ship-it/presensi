@@ -43,7 +43,7 @@
   h1 { margin: 0 0 2px; font-size: 1.5rem; font-weight: 800; letter-spacing: -.01em; }
   .clock { margin: 0 0 20px; color: var(--muted); font-size: .9rem; }
   label { display: block; margin: 14px 0 6px; font-size: .85rem; font-weight: 600; }
-  input {
+  input, textarea {
     width: 100%;
     padding: 12px;
     font: inherit;
@@ -52,7 +52,7 @@
     background: #fff;
     color: var(--ink);
   }
-  input:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #8ec1e6; outline-offset: 2px; }
+  input:focus-visible, textarea:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid #8ec1e6; outline-offset: 2px; }
   button {
     padding: 13px 10px;
     font: inherit;
@@ -66,6 +66,9 @@
   .secondary { background: #fff; color: var(--accent); }
   .full { width: 100%; margin-top: 16px; }
   .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+  textarea { resize: vertical; min-height: 84px; }
+  .status4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  .pilih.on { background: var(--accent); color: #fff; }
   .sapa { margin: 0; font-size: 1.1rem; font-weight: 600; }
   .sub { margin: 6px 0 0; font-size: .9rem; color: var(--muted); line-height: 1.45; }
   .link {
@@ -130,17 +133,39 @@
   <section id="sesi" hidden>
     <p class="sapa" id="sapa"></p>
 
-    <div id="aksiPresensi" hidden>
-      <p class="sub">Pilih jenis presensi.</p>
-      <div class="actions">
-        <button class="primary" id="btnMasuk">Presensi masuk</button>
-        <button class="secondary" id="btnPulang">Presensi pulang</button>
+    <p class="sub">Pilih status kehadiran Anda hari ini.</p>
+    <div class="status4" role="group" aria-label="Status kehadiran">
+      <button class="secondary pilih" data-st="Hadir" aria-pressed="false">Hadir</button>
+      <button class="secondary pilih" data-st="Izin" aria-pressed="false">Izin</button>
+      <button class="secondary pilih" data-st="Sakit" aria-pressed="false">Sakit</button>
+      <button class="secondary pilih" data-st="Dinas luar" aria-pressed="false">Dinas luar</button>
+    </div>
+
+    <!-- Hadir: presensi wajah + GPS dalam radius sekolah -->
+    <div id="panelHadir" hidden>
+      <p class="sub">Presensi hadir hanya bisa dilakukan di area sekolah. Jika sedang bertugas di luar, pilih Dinas luar.</p>
+      <div id="aksiPresensi" hidden>
+        <p class="sub">Pilih jenis presensi.</p>
+        <div class="actions">
+          <button class="primary" id="btnMasuk">Presensi masuk</button>
+          <button class="secondary" id="btnPulang">Presensi pulang</button>
+        </div>
+      </div>
+
+      <div id="aksiDaftar" hidden>
+        <p class="sub">Wajah Anda belum terdaftar. Daftarkan wajah dulu sebelum presensi.</p>
+        <button class="primary full" id="btnDaftar">Daftarkan wajah saya</button>
       </div>
     </div>
 
-    <div id="aksiDaftar" hidden>
-      <p class="sub">Wajah Anda belum terdaftar. Daftarkan wajah dulu sebelum presensi.</p>
-      <button class="primary full" id="btnDaftar">Daftarkan wajah saya</button>
+    <!-- Izin / sakit / dinas luar: tanpa wajah, tanpa batas lokasi, wajib keterangan + foto bukti -->
+    <div id="panelIzin" hidden>
+      <p class="sub">Presensi wajah tidak diperlukan dan batas lokasi tidak berlaku, tetapi lokasi HP tetap dicatat. Keterangan dan foto bukti wajib diisi.</p>
+      <label for="keterangan" id="lblKet">Keterangan</label>
+      <textarea id="keterangan" maxlength="300" placeholder="Tulis alasan singkat"></textarea>
+      <label for="fotoBukti" id="lblFoto">Foto bukti</label>
+      <input id="fotoBukti" type="file" accept="image/*">
+      <button class="primary full" id="btnKirimIzin">Kirim</button>
     </div>
 
     <details id="menuPin">
@@ -172,7 +197,7 @@
 
   <div id="camera"><video id="video" muted playsinline></video></div>
   <div id="status" role="status" aria-live="polite"></div>
-  <p class="hint">Izinkan akses kamera dan lokasi saat diminta. Data wajah disimpan sebagai angka, bukan foto.</p>
+  <p class="hint">Izinkan akses kamera dan lokasi saat diminta. Data wajah disimpan sebagai angka, bukan foto. Foto bukti izin/sakit disimpan di Google Drive sekolah.</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
@@ -189,6 +214,8 @@
   let modelsReady = false;
   let stream = null;
   let sesi = null; // { nip, pin, nama, admin, terdaftar } hanya di memori, tidak disimpan
+  let stPilih = null; // "Hadir" | "Izin" | "Sakit" | "Dinas luar" | null (belum memilih)
+  const NON_HADIR = ["Izin", "Sakit", "Dinas luar"];
 
   // ---------- Jam ----------
   function tick() {
@@ -213,15 +240,36 @@
     $("login").hidden = true;
     $("sesi").hidden = false;
     $("sapa").textContent = "Halo, " + sesi.nama;
+    $("adminMenu").hidden = !sesi.admin;
+    pilihStatus(stPilih);
+    hideStatus();
+  }
+
+  /** Atur panel sesuai pilihan Hadir / Izin / Sakit. */
+  function pilihStatus(st) {
+    stPilih = st;
+    document.querySelectorAll(".pilih").forEach((b) => {
+      const on = b.dataset.st === st;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+    const izin = NON_HADIR.indexOf(st) >= 0;
+    $("panelHadir").hidden = st !== "Hadir";
+    $("panelIzin").hidden = !izin;
     $("aksiPresensi").hidden = !sesi.terdaftar;
     $("aksiDaftar").hidden = sesi.terdaftar;
-    $("adminMenu").hidden = !sesi.admin;
-    hideStatus();
+    if (izin) {
+      const dinas = st === "Dinas luar";
+      $("btnKirimIzin").textContent = "Kirim " + st.toLowerCase();
+      $("lblFoto").textContent = dinas ? "Foto bukti (mis. surat tugas)" : "Foto bukti";
+      $("keterangan").placeholder = dinas ? "Tulis tujuan dan lokasi dinas" : "Tulis alasan singkat";
+    }
   }
 
   function keluar() {
     sesi = null;
-    ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget"].forEach((id) => ($(id).value = ""));
+    stPilih = null;
+    ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget", "keterangan", "fotoBukti"].forEach((id) => ($(id).value = ""));
     $("menuPin").open = false;
     $("adminMenu").open = false;
     $("sesi").hidden = true;
@@ -478,6 +526,50 @@
     });
   }
 
+  /** Perkecil foto dan ubah ke JPEG (base64 tanpa awalan) agar ringan dikirim. */
+  function fotoKeBase64(file, sisiMaks = 1280, mutu = 0.72) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const skala = Math.min(1, sisiMaks / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * skala);
+        c.height = Math.round(img.height * skala);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", mutu).split(",")[1]);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Foto tidak dapat dibaca. Pilih foto berformat JPG atau PNG."));
+      };
+      img.src = url;
+    });
+  }
+
+  async function kirimIzinSakit() {
+    const jenis = stPilih;
+    if (NON_HADIR.indexOf(jenis) < 0) return;
+    const ket = $("keterangan").value.trim();
+    const file = $("fotoBukti").files[0];
+    if (ket.length < 5) { show("err", "Keterangan wajib diisi (minimal 5 karakter)."); return; }
+    if (!file) { show("err", "Foto bukti wajib diupload."); return; }
+
+    const h = await jalankan(async () => {
+      show("info", "Memproses foto…");
+      const foto = await fotoKeBase64(file);
+      const data = { aksi: "izin_sakit", nip: sesi.nip, pin: sesi.pin, jenis, keterangan: ket, foto };
+      await tambahLokasi(data);
+      show("info", "Mengirim data…");
+      return kirim(data);
+    });
+    if (h && h.ok) {
+      $("keterangan").value = "";
+      $("fotoBukti").value = "";
+    }
+  }
+
   async function daftarSendiri() {
     const h = await jalankan(async () => {
       const sampel = await rekamWajah(3);
@@ -575,6 +667,8 @@
 
   $("btnLogin").addEventListener("click", login);
   $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
+  document.querySelectorAll(".pilih").forEach((b) => b.addEventListener("click", () => { pilihStatus(b.dataset.st); hideStatus(); }));
+  $("btnKirimIzin").addEventListener("click", kirimIzinSakit);
   $("btnMasuk").addEventListener("click", () => presensi("Masuk"));
   $("btnPulang").addEventListener("click", () => presensi("Pulang"));
   $("btnDaftar").addEventListener("click", daftarSendiri);
