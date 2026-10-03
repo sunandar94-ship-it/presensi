@@ -107,6 +107,8 @@
     .kertas { min-width: 0; }
     .matriks th, .matriks td, .k-A, .k-T, .k-I, .k-S, .k-D { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   }
+  .sec { margin: 16px 0 4px; font-weight: 600; }
+  #kopPratinjau { display: block; max-width: 80px; max-height: 80px; margin-top: 8px; }
   #hasilLaporan { margin-top: 14px; font-size: .85rem; line-height: 1.4; }
   #hasilLaporan:empty { display: none; }
   .scroll { overflow-x: auto; }
@@ -254,7 +256,9 @@
     </details>
 
     <details id="jamMenu" hidden>
-      <summary>Pengaturan jam kerja (admin)</summary>
+      <summary>Pengaturan (admin)</summary>
+
+      <p class="sec">Jam kerja</p>
       <p class="sub">Berlaku untuk semua guru pada presensi berikutnya. Hari kerja: Senin sampai Jumat.</p>
       <label for="jamMasuk">Jam masuk</label>
       <input id="jamMasuk" type="time">
@@ -263,6 +267,31 @@
       <label for="jamPulang">Jam pulang</label>
       <input id="jamPulang" type="time">
       <button class="secondary full" id="btnSimpanJam">Simpan jam kerja</button>
+
+      <p class="sec">Kop surat dan penandatangan</p>
+      <p class="sub">Dipakai pada cetak rekap formal.</p>
+      <label for="kopInstansi1">Instansi, baris 1</label>
+      <input id="kopInstansi1" maxlength="80" placeholder="mis. PEMERINTAH KOTA ...">
+      <label for="kopInstansi2">Instansi, baris 2 (boleh kosong)</label>
+      <input id="kopInstansi2" maxlength="80" placeholder="mis. DINAS PENDIDIKAN">
+      <label for="kopSekolah">Nama sekolah</label>
+      <input id="kopSekolah" maxlength="100">
+      <label for="kopAlamat">Alamat</label>
+      <input id="kopAlamat" maxlength="200">
+      <label for="kopKontak">Kontak (telepon, email; boleh kosong)</label>
+      <input id="kopKontak" maxlength="100">
+      <label for="kopKota">Kota (untuk tanggal tanda tangan)</label>
+      <input id="kopKota" maxlength="50">
+      <label for="kopKepsek">Nama kepala sekolah</label>
+      <input id="kopKepsek" maxlength="100">
+      <label for="kopNip">NIP kepala sekolah (boleh kosong)</label>
+      <input id="kopNip" maxlength="30" inputmode="numeric">
+      <label for="kopLogo">Logo sekolah (PNG atau JPG)</label>
+      <input id="kopLogo" type="file" accept="image/png,image/jpeg">
+      <img id="kopPratinjau" alt="Pratinjau logo" hidden>
+      <p class="sub" id="kopInfoLogo"></p>
+      <button class="secondary full" id="btnSimpanKop">Simpan kop surat</button>
+      <button class="secondary full" id="btnHapusLogo" hidden>Hapus logo</button>
     </details>
 
     <button class="link" id="btnKeluar">Keluar</button>
@@ -284,18 +313,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script>
   // GANTI dengan URL Web App hasil deploy Apps Script (berakhiran /exec)
-  // Kop surat dan penandatangan untuk rekap formal. Ganti dengan data sekolah Anda.
-  // Unggah file logo (mis. logo.png) ke folder yang sama dengan index.html di GitHub.
-  const KOP = {
-    logo: "logo.png",
-    instansi: ["[PEMERINTAH PROVINSI/KABUPATEN/KOTA]", "[DINAS PENDIDIKAN]"],
-    sekolah: "[NAMA SEKOLAH]",
-    alamat: "[Alamat lengkap sekolah]",
-    kontak: "[Telp. ... | Email: ...]",
-    kota: "[Kota]",
-    kepalaSekolah: { jabatan: "Kepala Sekolah", nama: "[Nama Kepala Sekolah]", nip: "NIP. [..................]" },
-  };
-
   const API_URL = "https://script.google.com/macros/s/AKfycbz7hb7ZTXDVEj_WzQpIPdXr_QKLd6qluwJ6v_VWb-_-mxYQx10qQcSmGfmqoZOUWbk-PA/exec";
   const MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/";
 
@@ -338,6 +355,7 @@
     $("jamMenu").hidden = !sesi.admin;
     $("btnCetak").hidden = !sesi.admin;
     isiInfoJam();
+    isiFormKop();
     if (!$("bulanLaporan").value) $("bulanLaporan").value = bulanIni();
     pilihStatus(stPilih);
     hideStatus();
@@ -380,7 +398,9 @@
   function keluar() {
     sesi = null;
     stPilih = null;
-    ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget", "keterangan", "fotoBukti"].forEach((id) => ($(id).value = ""));
+    ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget", "keterangan", "fotoBukti", "kopLogo"].forEach((id) => ($(id).value = ""));
+    logoBaru = "";
+    $("kopPratinjau").hidden = true;
     $("menuPin").open = false;
     $("menuLaporan").open = false;
     $("jamMenu").open = false;
@@ -622,7 +642,7 @@
       const h = await kirim({ aksi: "status", nip, pin });
       if (!h.ok) { show("err", h.pesan); return; }
       try { localStorage.setItem("nip", nip); } catch (e) {}
-      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam };
+      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam, kop: h.kop, adaLogo: h.adaLogo };
       tampilSesi();
     } catch (err) {
       show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
@@ -807,19 +827,20 @@
   function bangunLembar(h) {
     const kertas = $("kertas");
     kertas.replaceChildren();
+    const k = h.kop;
 
     // Kop surat
     const kop = el("div", null, "kop");
     const logo = el("img", null, "kop-logo");
     logo.alt = "Logo";
     logo.addEventListener("error", () => { logo.style.visibility = "hidden"; });
-    logo.src = KOP.logo;
+    if (h.logo) logo.src = h.logo; else logo.style.visibility = "hidden";
     kop.appendChild(logo);
     const teks = el("div", null, "kop-teks");
-    KOP.instansi.forEach((t) => teks.appendChild(el("div", t, "kop-instansi")));
-    teks.appendChild(el("div", KOP.sekolah, "kop-sekolah"));
-    teks.appendChild(el("div", KOP.alamat, "kop-alamat"));
-    if (KOP.kontak) teks.appendChild(el("div", KOP.kontak, "kop-alamat"));
+    [k.instansi1, k.instansi2].filter(Boolean).forEach((t) => teks.appendChild(el("div", t, "kop-instansi")));
+    teks.appendChild(el("div", k.sekolah, "kop-sekolah"));
+    if (k.alamat) teks.appendChild(el("div", k.alamat, "kop-alamat"));
+    if (k.kontak) teks.appendChild(el("div", k.kontak, "kop-alamat"));
     kop.appendChild(teks);
     kop.appendChild(el("div")); // pengimbang agar teks kop tetap di tengah
     kertas.appendChild(kop);
@@ -878,8 +899,8 @@
 
     // Tanda tangan
     const ttd = el("div", null, "ttd");
-    ttd.appendChild(blokTtd(["Mengetahui,", KOP.kepalaSekolah.jabatan], KOP.kepalaSekolah.nama, KOP.kepalaSekolah.nip));
-    ttd.appendChild(blokTtd([KOP.kota + ", " + tglPanjang(new Date()), "Admin Presensi"], sesi.nama, ""));
+    ttd.appendChild(blokTtd(["Mengetahui,", "Kepala Sekolah"], k.kepsekNama, k.kepsekNip ? "NIP. " + k.kepsekNip : ""));
+    ttd.appendChild(blokTtd([(k.kota ? k.kota + ", " : "") + tglPanjang(new Date()), "Admin Presensi"], sesi.nama, ""));
     kertas.appendChild(ttd);
   }
 
@@ -890,6 +911,11 @@
       show("info", "Menyiapkan rekap…");
       const h = await kirim({ aksi: "matriks", nip: sesi.nip, pin: sesi.pin, bulan });
       if (!h.ok) { show("err", h.pesan); return; }
+      if (!h.kop || !h.kop.sekolah) {
+        show("err", "Data kop surat belum diisi. Lengkapi di Pengaturan (admin), bagian Kop surat dan penandatangan.");
+        $("jamMenu").open = true;
+        return;
+      }
       hideStatus();
       bangunLembar(h);
       if (!judulAsli) judulAsli = document.title;
@@ -924,6 +950,92 @@
     } finally {
       setBusy(false);
     }
+  }
+
+  // ---------- Pengaturan kop surat ----------
+  let logoBaru = ""; // base64 logo yang baru dipilih (belum disimpan)
+
+  function isiFormKop() {
+    const k = (sesi && sesi.kop) || {};
+    $("kopInstansi1").value = k.instansi1 || "";
+    $("kopInstansi2").value = k.instansi2 || "";
+    $("kopSekolah").value = k.sekolah || "";
+    $("kopAlamat").value = k.alamat || "";
+    $("kopKontak").value = k.kontak || "";
+    $("kopKota").value = k.kota || "";
+    $("kopKepsek").value = k.kepsekNama || "";
+    $("kopNip").value = k.kepsekNip || "";
+    $("kopLogo").value = "";
+    logoBaru = "";
+    $("kopPratinjau").hidden = true;
+    const ada = !!(sesi && sesi.adaLogo);
+    $("kopInfoLogo").textContent = ada ? "Logo sudah tersimpan. Pilih file baru untuk menggantinya." : "Belum ada logo.";
+    $("btnHapusLogo").hidden = !ada;
+  }
+
+  /** Perkecil logo (maks. 400 px) dan kembalikan base64 + data URL. PNG tetap PNG agar transparansi terjaga. */
+  function logoKeBase64(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const jenis = file.type === "image/png" ? "image/png" : "image/jpeg";
+        let sisi = 400, hasil = "";
+        for (let i = 0; i < 3; i++) {
+          const skala = Math.min(1, sisi / Math.max(img.width, img.height));
+          const c = document.createElement("canvas");
+          c.width = Math.max(1, Math.round(img.width * skala));
+          c.height = Math.max(1, Math.round(img.height * skala));
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          hasil = c.toDataURL(jenis, 0.9);
+          if (hasil.length < 380000) break;
+          sisi = Math.round(sisi * 0.65);
+        }
+        if (hasil.length >= 380000) { reject(new Error("Logo terlalu besar. Gunakan gambar yang lebih sederhana.")); return; }
+        resolve({ b64: hasil.split(",")[1], url: hasil });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("Logo tidak dapat dibaca. Gunakan file PNG atau JPG."));
+      };
+      img.src = url;
+    });
+  }
+
+  async function pilihLogo() {
+    logoBaru = "";
+    $("kopPratinjau").hidden = true;
+    const f = $("kopLogo").files[0];
+    if (!f) return;
+    try {
+      const r = await logoKeBase64(f);
+      logoBaru = r.b64;
+      $("kopPratinjau").src = r.url;
+      $("kopPratinjau").hidden = false;
+      hideStatus();
+    } catch (err) {
+      $("kopLogo").value = "";
+      show("err", err.message);
+    }
+  }
+
+  async function simpanKop() {
+    const data = {
+      aksi: "atur_kop", nip: sesi.nip, pin: sesi.pin,
+      instansi1: $("kopInstansi1").value, instansi2: $("kopInstansi2").value,
+      sekolah: $("kopSekolah").value, alamat: $("kopAlamat").value, kontak: $("kopKontak").value,
+      kota: $("kopKota").value, kepsekNama: $("kopKepsek").value, kepsekNip: $("kopNip").value
+    };
+    if (!data.sekolah.trim()) { show("err", "Nama sekolah wajib diisi."); return; }
+    if (logoBaru) data.logo = logoBaru;
+    const h = await panggil(data);
+    if (h && h.ok) { sesi.kop = h.kop; sesi.adaLogo = h.adaLogo; isiFormKop(); }
+  }
+
+  async function hapusLogo() {
+    const h = await panggil({ aksi: "hapus_logo", nip: sesi.nip, pin: sesi.pin });
+    if (h && h.ok) { sesi.adaLogo = false; isiFormKop(); }
   }
 
   async function simpanJam() {
@@ -1038,6 +1150,9 @@
   document.querySelectorAll(".pilih").forEach((b) => b.addEventListener("click", () => { pilihStatus(b.dataset.st); hideStatus(); }));
   $("btnKirimIzin").addEventListener("click", kirimIzinSakit);
   $("btnSimpanJam").addEventListener("click", simpanJam);
+  $("btnSimpanKop").addEventListener("click", simpanKop);
+  $("btnHapusLogo").addEventListener("click", hapusLogo);
+  $("kopLogo").addEventListener("change", pilihLogo);
   $("btnCetak").addEventListener("click", cetakRekap);
   $("btnCetakKertas").addEventListener("click", () => window.print());
   $("btnTutupLembar").addEventListener("click", tutupLembar);
