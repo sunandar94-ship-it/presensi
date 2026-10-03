@@ -69,6 +69,44 @@
   textarea { resize: vertical; min-height: 84px; }
   .status4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
   .pilih.on { background: var(--accent); color: #fff; }
+  /* Lembar rekap formal (layar: menutupi aplikasi; cetak: hanya lembar ini, A4 lanskap) */
+  #lembarCetak { position: fixed; inset: 0; z-index: 50; overflow: auto; padding: 12px; background: #fff; color: #000; }
+  #lembarCetak .bar { position: sticky; left: 0; top: 0; display: flex; gap: 8px; margin-bottom: 12px; }
+  .kertas { min-width: 1000px; font-family: "Times New Roman", Times, serif; font-size: 12px; line-height: 1.3; color: #000; }
+  .kop { display: grid; grid-template-columns: 80px 1fr 80px; align-items: center; gap: 8px; }
+  .kop-logo { width: 72px; height: 72px; object-fit: contain; }
+  .kop-teks { text-align: center; }
+  .kop-instansi { font-size: 14px; font-weight: 700; text-transform: uppercase; }
+  .kop-sekolah { font-size: 18px; font-weight: 700; text-transform: uppercase; }
+  .kop-alamat { font-size: 11px; }
+  .kop-garis { margin: 4px 0 6px; border-top: 3px solid #000; border-bottom: 1px solid #000; height: 3px; }
+  .judul { text-align: center; font-size: 15px; font-weight: 700; text-transform: uppercase; }
+  .subjudul { margin-bottom: 6px; text-align: center; font-size: 13px; }
+  .matriks { width: 100%; border-collapse: collapse; }
+  .matriks th, .matriks td { padding: 1px 1px; border: 1px solid #000; text-align: center; font-size: 10px; }
+  .matriks td.nama { padding: 1px 4px; text-align: left; white-space: nowrap; }
+  .matriks td.nama small { display: block; color: #333; font-size: 8px; }
+  .matriks th { background: #e8e8e8; }
+  .matriks .hr { font-size: 8px; font-weight: 400; }
+  .k-A { background: #f4d4d4; font-weight: 700; }
+  .k-T { background: #fbeac2; font-weight: 700; }
+  .k-I, .k-S, .k-D { background: #d9e6f6; font-weight: 700; }
+  .catatan { margin-top: 6px; font-size: 9.5px; }
+  .catatan p { margin: 2px 0; }
+  .ttd { display: flex; justify-content: space-between; margin: 10px 40px 0; font-size: 11px; break-inside: avoid; }
+  .ttd div { min-width: 220px; text-align: center; }
+  .ttd .ruang { height: 40px; }
+  .matriks thead { display: table-header-group; }
+  .matriks tr { break-inside: avoid; }
+  @page { size: A4 landscape; margin: 12mm; }
+  @media print {
+    html, body { background: #fff !important; min-height: 0 !important; height: auto !important; display: block !important; padding: 0 !important; margin: 0 !important; }
+    body > *:not(#lembarCetak) { display: none !important; }
+    #lembarCetak { position: static; overflow: visible; padding: 0; }
+    #lembarCetak .bar { display: none; }
+    .kertas { min-width: 0; }
+    .matriks th, .matriks td, .k-A, .k-T, .k-I, .k-S, .k-D { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
   #hasilLaporan { margin-top: 14px; font-size: .85rem; line-height: 1.4; }
   #hasilLaporan:empty { display: none; }
   .scroll { overflow-x: auto; }
@@ -187,6 +225,7 @@
       <input id="bulanLaporan" type="month" placeholder="2026-10">
       <button class="secondary full" id="btnLapSaya">Lihat rekap saya</button>
       <button class="secondary full" id="btnLapSemua" hidden>Rekap semua guru</button>
+      <button class="secondary full" id="btnCetak" hidden>Cetak rekap formal (matriks)</button>
       <div id="hasilLaporan"></div>
     </details>
 
@@ -234,9 +273,29 @@
   <p class="hint">Izinkan akses kamera dan lokasi saat diminta. Data wajah disimpan sebagai angka, bukan foto. Foto bukti izin/sakit disimpan di Google Drive sekolah.</p>
 </main>
 
+<div id="lembarCetak" hidden>
+  <div class="bar">
+    <button class="primary" id="btnCetakKertas">Cetak / Simpan PDF</button>
+    <button class="secondary" id="btnTutupLembar">Tutup</button>
+  </div>
+  <div id="kertas" class="kertas"></div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/dist/face-api.js"></script>
 <script>
   // GANTI dengan URL Web App hasil deploy Apps Script (berakhiran /exec)
+  // Kop surat dan penandatangan untuk rekap formal. Ganti dengan data sekolah Anda.
+  // Unggah file logo (mis. logo.png) ke folder yang sama dengan index.html di GitHub.
+  const KOP = {
+    logo: "logo.png",
+    instansi: ["[PEMERINTAH PROVINSI/KABUPATEN/KOTA]", "[DINAS PENDIDIKAN]"],
+    sekolah: "[NAMA SEKOLAH]",
+    alamat: "[Alamat lengkap sekolah]",
+    kontak: "[Telp. ... | Email: ...]",
+    kota: "[Kota]",
+    kepalaSekolah: { jabatan: "Kepala Sekolah", nama: "[Nama Kepala Sekolah]", nip: "NIP. [..................]" },
+  };
+
   const API_URL = "https://script.google.com/macros/s/AKfycbz7hb7ZTXDVEj_WzQpIPdXr_QKLd6qluwJ6v_VWb-_-mxYQx10qQcSmGfmqoZOUWbk-PA/exec";
   const MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model/";
 
@@ -277,6 +336,7 @@
     $("adminMenu").hidden = !sesi.admin;
     $("btnLapSemua").hidden = !sesi.admin;
     $("jamMenu").hidden = !sesi.admin;
+    $("btnCetak").hidden = !sesi.admin;
     isiInfoJam();
     if (!$("bulanLaporan").value) $("bulanLaporan").value = bulanIni();
     pilihStatus(stPilih);
@@ -324,6 +384,7 @@
     $("menuPin").open = false;
     $("menuLaporan").open = false;
     $("jamMenu").open = false;
+    tutupLembar();
     $("hasilLaporan").replaceChildren();
     $("bulanLaporan").value = "";
     $("adminMenu").open = false;
@@ -707,6 +768,7 @@
       } else {
         baris.appendChild(el("small", e.keterangan || "-"));
       }
+      if (e.luarKerja) baris.appendChild(el("small", "Di luar hari kerja atau hari libur, tidak dihitung."));
       const peta = tautan("Peta", e.peta);
       const bukti = tautan("Bukti", e.bukti);
       if (peta || bukti) {
@@ -717,6 +779,134 @@
       }
       box.appendChild(baris);
     });
+  }
+
+  // ---------- Rekap formal (matriks) ----------
+  const tglPanjang = (d) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "long", year: "numeric" }).format(d);
+  const tglPendek = (t) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", day: "numeric", month: "short", year: "numeric" }).format(new Date(t + "T12:00:00+07:00"));
+  const hariPendek = (t) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "short" }).format(new Date(t + "T12:00:00+07:00"));
+  let judulAsli = "";
+
+  function sel(tag, teks, cls, attrs) {
+    const e = el(tag, teks, cls);
+    if (attrs) Object.keys(attrs).forEach((k) => { e[k] = attrs[k]; });
+    return e;
+  }
+
+  function blokTtd(baris, nama, nip) {
+    const b = el("div");
+    baris.forEach((t) => b.appendChild(el("div", t)));
+    b.appendChild(el("div", null, "ruang"));
+    const n = el("div", nama);
+    n.style.textDecoration = "underline";
+    b.appendChild(n);
+    if (nip) b.appendChild(el("div", nip));
+    return b;
+  }
+
+  function bangunLembar(h) {
+    const kertas = $("kertas");
+    kertas.replaceChildren();
+
+    // Kop surat
+    const kop = el("div", null, "kop");
+    const logo = el("img", null, "kop-logo");
+    logo.alt = "Logo";
+    logo.addEventListener("error", () => { logo.style.visibility = "hidden"; });
+    logo.src = KOP.logo;
+    kop.appendChild(logo);
+    const teks = el("div", null, "kop-teks");
+    KOP.instansi.forEach((t) => teks.appendChild(el("div", t, "kop-instansi")));
+    teks.appendChild(el("div", KOP.sekolah, "kop-sekolah"));
+    teks.appendChild(el("div", KOP.alamat, "kop-alamat"));
+    if (KOP.kontak) teks.appendChild(el("div", KOP.kontak, "kop-alamat"));
+    kop.appendChild(teks);
+    kop.appendChild(el("div")); // pengimbang agar teks kop tetap di tengah
+    kertas.appendChild(kop);
+    kertas.appendChild(el("div", null, "kop-garis"));
+
+    kertas.appendChild(el("div", "Rekapitulasi Kehadiran Guru", "judul"));
+    kertas.appendChild(el("div", "Bulan " + namaBulan(h.bulan), "subjudul"));
+
+    // Matriks: baris = guru, kolom = tanggal kerja
+    const n = h.hari.length;
+    const tabel = el("table", null, "matriks");
+    const kepala = el("thead");
+    const badan = el("tbody");
+    tabel.appendChild(kepala);
+    tabel.appendChild(badan);
+    const r1 = el("tr");
+    r1.appendChild(sel("th", "No", null, { rowSpan: 3 }));
+    r1.appendChild(sel("th", "Nama Guru", null, { rowSpan: 3 }));
+    if (n) r1.appendChild(sel("th", "Tanggal", null, { colSpan: n }));
+    r1.appendChild(sel("th", "Jumlah", null, { colSpan: 6 }));
+    kepala.appendChild(r1);
+    const r2 = el("tr");
+    h.hari.forEach((t) => r2.appendChild(el("th", String(Number(t.slice(8, 10))))));
+    ["H", "T", "I", "S", "D", "A"].forEach((x) => r2.appendChild(sel("th", x, null, { rowSpan: 2 })));
+    kepala.appendChild(r2);
+    const r3 = el("tr");
+    h.hari.forEach((t) => r3.appendChild(el("th", hariPendek(t), "hr")));
+    kepala.appendChild(r3);
+
+    if (!h.guru.length) {
+      const tr = el("tr");
+      tr.appendChild(sel("td", "Belum ada data guru.", null, { colSpan: 2 + n + 6 }));
+      badan.appendChild(tr);
+    }
+    h.guru.forEach((g, i) => {
+      const tr = el("tr");
+      tr.appendChild(el("td", String(i + 1)));
+      const td = el("td", g.nama, "nama");
+      td.appendChild(el("small", g.nip));
+      tr.appendChild(td);
+      g.sel.forEach((k) => tr.appendChild(el("td", k, k ? "k-" + k : "")));
+      [g.hadir, g.terlambat, g.izin, g.sakit, g.dinas, g.alpa].forEach((x) => tr.appendChild(el("td", String(x))));
+      badan.appendChild(tr);
+    });
+    kertas.appendChild(tabel);
+
+    // Catatan
+    const cat = el("div", null, "catatan");
+    cat.appendChild(el("p", "Keterangan: H = hadir tepat waktu; T = hadir terlambat; I = izin; S = sakit; D = dinas luar; A = alpa (hari kerja tanpa presensi, izin, sakit, atau dinas luar); kosong = hari kerja yang belum berlangsung."));
+    cat.appendChild(el("p", "Kolom Jumlah: H = total hadir (termasuk yang terlambat), T = jumlah hari terlambat, I, S, D, A = jumlah hari menurut kode di atas."));
+    let libur = "Hari kerja Senin sampai Jumat. Hari libur tidak dihitung";
+    if (h.libur.length) libur += ": " + h.libur.map((l) => tglPendek(l.tanggal) + (l.keterangan ? " (" + l.keterangan + ")" : "")).join(", ");
+    cat.appendChild(el("p", libur + "."));
+    cat.appendChild(el("p", "Akun admin tidak termasuk dalam rekap."));
+    kertas.appendChild(cat);
+
+    // Tanda tangan
+    const ttd = el("div", null, "ttd");
+    ttd.appendChild(blokTtd(["Mengetahui,", KOP.kepalaSekolah.jabatan], KOP.kepalaSekolah.nama, KOP.kepalaSekolah.nip));
+    ttd.appendChild(blokTtd([KOP.kota + ", " + tglPanjang(new Date()), "Admin Presensi"], sesi.nama, ""));
+    kertas.appendChild(ttd);
+  }
+
+  async function cetakRekap() {
+    const bulan = $("bulanLaporan").value || bulanIni();
+    setBusy(true);
+    try {
+      show("info", "Menyiapkan rekap…");
+      const h = await kirim({ aksi: "matriks", nip: sesi.nip, pin: sesi.pin, bulan });
+      if (!h.ok) { show("err", h.pesan); return; }
+      hideStatus();
+      bangunLembar(h);
+      if (!judulAsli) judulAsli = document.title;
+      document.title = "Rekap Kehadiran Guru " + namaBulan(h.bulan);
+      $("lembarCetak").hidden = false;
+      $("lembarCetak").scrollTop = 0;
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function tutupLembar() {
+    $("lembarCetak").hidden = true;
+    $("kertas").replaceChildren();
+    if (judulAsli) { document.title = judulAsli; judulAsli = ""; }
   }
 
   /** extra: {} = rekap saya, { semua: true } = semua guru (admin), { nipTarget } = rincian satu guru (admin). */
@@ -848,6 +1038,9 @@
   document.querySelectorAll(".pilih").forEach((b) => b.addEventListener("click", () => { pilihStatus(b.dataset.st); hideStatus(); }));
   $("btnKirimIzin").addEventListener("click", kirimIzinSakit);
   $("btnSimpanJam").addEventListener("click", simpanJam);
+  $("btnCetak").addEventListener("click", cetakRekap);
+  $("btnCetakKertas").addEventListener("click", () => window.print());
+  $("btnTutupLembar").addEventListener("click", tutupLembar);
   $("btnLapSaya").addEventListener("click", () => laporan({}));
   $("btnLapSemua").addEventListener("click", () => laporan({ semua: true }));
   $("btnMasuk").addEventListener("click", () => presensi("Masuk"));
