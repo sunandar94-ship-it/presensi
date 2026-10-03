@@ -69,6 +69,18 @@
   textarea { resize: vertical; min-height: 84px; }
   .status4 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
   .pilih.on { background: var(--accent); color: #fff; }
+  #hasilLaporan { margin-top: 14px; font-size: .85rem; line-height: 1.4; }
+  #hasilLaporan:empty { display: none; }
+  .scroll { overflow-x: auto; }
+  .tabel { width: 100%; border-collapse: collapse; }
+  .tabel th, .tabel td { padding: 7px 4px; border-bottom: 1px solid var(--line); text-align: center; }
+  .tabel th:first-child, .tabel td:first-child { text-align: left; }
+  .nama-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; cursor: pointer; }
+  .lap-judul { margin: 0 0 6px; font-weight: 600; }
+  .lap-info { margin: 6px 0 0; color: var(--muted); font-size: .78rem; }
+  .baris { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .baris small { display: block; color: var(--muted); }
+  .tautan { color: var(--accent); margin-right: 10px; }
   .sapa { margin: 0; font-size: 1.1rem; font-weight: 600; }
   .sub { margin: 6px 0 0; font-size: .9rem; color: var(--muted); line-height: 1.45; }
   .link {
@@ -144,6 +156,7 @@
     <!-- Hadir: presensi wajah + GPS dalam radius sekolah -->
     <div id="panelHadir" hidden>
       <p class="sub">Presensi hadir hanya bisa dilakukan di area sekolah. Jika sedang bertugas di luar, pilih Dinas luar.</p>
+      <p class="sub" id="infoJam"></p>
       <div id="aksiPresensi" hidden>
         <p class="sub">Pilih jenis presensi.</p>
         <div class="actions">
@@ -168,6 +181,15 @@
       <button class="primary full" id="btnKirimIzin">Kirim</button>
     </div>
 
+    <details id="menuLaporan">
+      <summary>Laporan presensi</summary>
+      <label for="bulanLaporan">Bulan</label>
+      <input id="bulanLaporan" type="month" placeholder="2026-10">
+      <button class="secondary full" id="btnLapSaya">Lihat rekap saya</button>
+      <button class="secondary full" id="btnLapSemua" hidden>Rekap semua guru</button>
+      <div id="hasilLaporan"></div>
+    </details>
+
     <details id="menuPin">
       <summary>Ganti PIN saya</summary>
       <label for="pinBaru">PIN baru (6–12 angka)</label>
@@ -190,6 +212,18 @@
       <button class="secondary full" id="btnResetPin">Atur ulang PIN guru</button>
 
       <button class="secondary full" id="btnBukaKunci">Buka kunci akun guru</button>
+    </details>
+
+    <details id="jamMenu" hidden>
+      <summary>Pengaturan jam kerja (admin)</summary>
+      <p class="sub">Berlaku untuk semua guru pada presensi berikutnya. Hari kerja: Senin sampai Jumat.</p>
+      <label for="jamMasuk">Jam masuk</label>
+      <input id="jamMasuk" type="time">
+      <label for="toleransi">Toleransi masuk (menit)</label>
+      <input id="toleransi" type="number" inputmode="numeric" min="0" max="120">
+      <label for="jamPulang">Jam pulang</label>
+      <input id="jamPulang" type="time">
+      <button class="secondary full" id="btnSimpanJam">Simpan jam kerja</button>
     </details>
 
     <button class="link" id="btnKeluar">Keluar</button>
@@ -241,11 +275,28 @@
     $("sesi").hidden = false;
     $("sapa").textContent = "Halo, " + sesi.nama;
     $("adminMenu").hidden = !sesi.admin;
+    $("btnLapSemua").hidden = !sesi.admin;
+    $("jamMenu").hidden = !sesi.admin;
+    isiInfoJam();
+    if (!$("bulanLaporan").value) $("bulanLaporan").value = bulanIni();
     pilihStatus(stPilih);
     hideStatus();
   }
 
-  /** Atur panel sesuai pilihan Hadir / Izin / Sakit. */
+  /** Tampilkan jam kerja yang berlaku; admin juga mengisi formulir pengaturan. */
+  function isiInfoJam() {
+    const j = sesi && sesi.jam;
+    $("infoJam").textContent = j
+      ? "Jam masuk " + j.masuk + " (toleransi " + j.toleransi + " menit), jam pulang " + j.pulang + "."
+      : "";
+    if (j) {
+      $("jamMasuk").value = j.masuk;
+      $("toleransi").value = j.toleransi;
+      $("jamPulang").value = j.pulang;
+    }
+  }
+
+  /** Atur panel sesuai pilihan Hadir / Izin / Sakit / Dinas luar. */
   function pilihStatus(st) {
     stPilih = st;
     document.querySelectorAll(".pilih").forEach((b) => {
@@ -271,6 +322,10 @@
     stPilih = null;
     ["pin", "pinBaru", "pinBaru2", "nipTarget", "pinTarget", "keterangan", "fotoBukti"].forEach((id) => ($(id).value = ""));
     $("menuPin").open = false;
+    $("menuLaporan").open = false;
+    $("jamMenu").open = false;
+    $("hasilLaporan").replaceChildren();
+    $("bulanLaporan").value = "";
     $("adminMenu").open = false;
     $("sesi").hidden = true;
     $("login").hidden = false;
@@ -506,7 +561,7 @@
       const h = await kirim({ aksi: "status", nip, pin });
       if (!h.ok) { show("err", h.pesan); return; }
       try { localStorage.setItem("nip", nip); } catch (e) {}
-      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar };
+      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam };
       tampilSesi();
     } catch (err) {
       show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
@@ -568,6 +623,129 @@
       $("keterangan").value = "";
       $("fotoBukti").value = "";
     }
+  }
+
+  // ---------- Laporan ----------
+  function bulanIni() {
+    const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+    const g = (t) => p.find((x) => x.type === t).value;
+    return g("year") + "-" + g("month");
+  }
+
+  // Semua data dari server ditampilkan lewat textContent (bukan innerHTML) agar aman dari injeksi HTML.
+  function el(tag, teks, cls) {
+    const e = document.createElement(tag);
+    if (teks != null) e.textContent = teks;
+    if (cls) e.className = cls;
+    return e;
+  }
+
+  function tautan(teks, url) {
+    if (!/^https:\/\//.test(String(url || ""))) return null;
+    const a = el("a", teks, "tautan");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    return a;
+  }
+
+  const namaBulan = (b) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", month: "long", year: "numeric" })
+    .format(new Date(b + "-15T12:00:00+07:00"));
+  const namaHari = (t) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "numeric", month: "short" })
+    .format(new Date(t + "T12:00:00+07:00"));
+
+  function tampilRekap(h) {
+    const box = $("hasilLaporan");
+    box.replaceChildren();
+    box.appendChild(el("p", "Rekap semua guru, " + namaBulan(h.bulan), "lap-judul"));
+    if (!h.rekap.length) { box.appendChild(el("p", "Belum ada data guru.", "lap-info")); return; }
+
+    const tabel = el("table", null, "tabel");
+    const kepala = el("tr");
+    ["Nama", "H", "T", "I", "S", "DL", "A"].forEach((t) => kepala.appendChild(el("th", t)));
+    tabel.appendChild(kepala);
+    h.rekap.forEach((r) => {
+      const tr = el("tr");
+      const td = el("td");
+      const b = el("button", r.nama, "nama-btn");
+      b.addEventListener("click", () => laporan({ nipTarget: r.nip }));
+      td.appendChild(b);
+      tr.appendChild(td);
+      [r.hadir, r.terlambat, r.izin, r.sakit, r.dinas, r.alpa].forEach((n) => tr.appendChild(el("td", String(n))));
+      tabel.appendChild(tr);
+    });
+    const gulung = el("div", null, "scroll");
+    gulung.appendChild(tabel);
+    box.appendChild(gulung);
+    box.appendChild(el("p", "H hadir, T terlambat (sudah termasuk H), I izin, S sakit, DL dinas luar, A alpa (hari kerja yang sudah lewat tanpa data, tidak termasuk hari libur). Ketuk nama untuk melihat rincian.", "lap-info"));
+  }
+
+  function tampilDetail(h) {
+    const box = $("hasilLaporan");
+    box.replaceChildren();
+
+    if (sesi.admin && h.nip !== sesi.nip) {
+      const kembali = el("button", "← Kembali ke rekap", "nama-btn");
+      kembali.addEventListener("click", () => laporan({ semua: true }));
+      box.appendChild(kembali);
+    }
+    box.appendChild(el("p", h.nama + ", " + namaBulan(h.bulan), "lap-judul"));
+    const r = h.ringkas;
+    box.appendChild(el("p", "Hadir " + r.hadir + " (terlambat " + r.terlambat + ") · Izin " + r.izin + " · Sakit " + r.sakit +
+      " · Dinas luar " + r.dinas + " · Alpa " + r.alpa + " · Belum pulang " + r.belumPulang + " · Pulang cepat " + r.pulangCepat, "lap-info"));
+
+    if (!h.detail.length) { box.appendChild(el("p", "Belum ada data untuk bulan ini.", "lap-info")); return; }
+    h.detail.forEach((e) => {
+      const baris = el("div", null, "baris");
+      baris.appendChild(el("strong", namaHari(e.tanggal) + ": " + e.status));
+      if (e.status === "Hadir") {
+        const masuk = "Masuk " + (e.masuk || "-") + (e.masukStatus === "Terlambat" ? " (terlambat " + e.masukSel + " mnt)" : "");
+        const pulang = "Pulang " + (e.pulang || "-") + (e.pulangStatus === "Pulang cepat" ? " (lebih awal " + e.pulangSel + " mnt)" : "");
+        baris.appendChild(el("small", masuk + " · " + pulang));
+      } else if (e.status === "Alpa") {
+        baris.appendChild(el("small", "Tidak ada presensi, izin, sakit, atau dinas luar."));
+      } else {
+        baris.appendChild(el("small", e.keterangan || "-"));
+      }
+      const peta = tautan("Peta", e.peta);
+      const bukti = tautan("Bukti", e.bukti);
+      if (peta || bukti) {
+        const l = el("small");
+        if (bukti) l.appendChild(bukti);
+        if (peta) l.appendChild(peta);
+        baris.appendChild(l);
+      }
+      box.appendChild(baris);
+    });
+  }
+
+  /** extra: {} = rekap saya, { semua: true } = semua guru (admin), { nipTarget } = rincian satu guru (admin). */
+  async function laporan(extra) {
+    const bulan = $("bulanLaporan").value || bulanIni();
+    setBusy(true);
+    try {
+      show("info", "Mengambil laporan…");
+      const h = await kirim(Object.assign({ aksi: "laporan", nip: sesi.nip, pin: sesi.pin, bulan }, extra));
+      if (!h.ok) { show("err", h.pesan); return; }
+      hideStatus();
+      if (h.mode === "rekap") tampilRekap(h); else tampilDetail(h);
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function simpanJam() {
+    const jamMasuk = $("jamMasuk").value;
+    const jamPulang = $("jamPulang").value;
+    const tol = $("toleransi").value.trim();
+    if (!jamMasuk || !jamPulang || !/^\d{1,3}$/.test(tol)) {
+      show("err", "Jam masuk, toleransi (angka menit), dan jam pulang wajib diisi.");
+      return;
+    }
+    const h = await panggil({ aksi: "atur_jam", nip: sesi.nip, pin: sesi.pin, jamMasuk, jamPulang, toleransi: Number(tol) });
+    if (h && h.ok) { sesi.jam = h.jam; isiInfoJam(); }
   }
 
   async function daftarSendiri() {
@@ -669,6 +847,9 @@
   $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
   document.querySelectorAll(".pilih").forEach((b) => b.addEventListener("click", () => { pilihStatus(b.dataset.st); hideStatus(); }));
   $("btnKirimIzin").addEventListener("click", kirimIzinSakit);
+  $("btnSimpanJam").addEventListener("click", simpanJam);
+  $("btnLapSaya").addEventListener("click", () => laporan({}));
+  $("btnLapSemua").addEventListener("click", () => laporan({ semua: true }));
   $("btnMasuk").addEventListener("click", () => presensi("Masuk"));
   $("btnPulang").addEventListener("click", () => presensi("Pulang"));
   $("btnDaftar").addEventListener("click", daftarSendiri);
