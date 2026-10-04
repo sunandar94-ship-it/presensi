@@ -93,7 +93,7 @@
   .k-I, .k-S, .k-D { background: #d9e6f6; font-weight: 700; }
   .catatan { margin-top: 6px; font-size: 9.5px; }
   .catatan p { margin: 2px 0; }
-  .ttd { display: flex; justify-content: space-between; margin: 10px 40px 0; font-size: 11px; break-inside: avoid; }
+  .ttd { display: flex; justify-content: flex-end; margin: 10px 40px 0; font-size: 11px; break-inside: avoid; }
   .ttd div { min-width: 220px; text-align: center; }
   .ttd .ruang { height: 40px; }
   .matriks thead { display: table-header-group; }
@@ -258,6 +258,23 @@
       <button class="secondary full" id="btnBukaKunci">Buka kunci akun guru</button>
     </details>
 
+    <details id="liburMenu" hidden>
+      <summary>Tambah Hari Libur</summary>
+      <p class="sub">Hari libur tidak dihitung dalam rekap (tidak ada alpa). Sabtu dan Minggu sudah otomatis bukan hari kerja.</p>
+      <label for="liburTgl">Tanggal</label>
+      <input id="liburTgl" type="date">
+      <label for="liburSampai">Sampai tanggal (untuk libur beberapa hari; boleh kosong)</label>
+      <input id="liburSampai" type="date">
+      <label for="liburKet">Keterangan</label>
+      <input id="liburKet" maxlength="100" placeholder="mis. Hari Raya, libur semester">
+      <button class="primary full" id="btnTambahLibur">Tambah hari libur</button>
+
+      <p class="sec">Daftar hari libur</p>
+      <label for="liburBulan">Bulan</label>
+      <input id="liburBulan" type="month" placeholder="2026-10">
+      <div id="daftarLibur"></div>
+    </details>
+
     <details id="jamMenu" hidden>
       <summary>Pengaturan (admin)</summary>
 
@@ -358,6 +375,8 @@
     $("btnLapSaya").hidden = sesi.admin;      // admin tidak melakukan presensi
     $("blokPresensi").hidden = sesi.admin;
     $("jamMenu").hidden = !sesi.admin;
+    $("liburMenu").hidden = !sesi.admin;
+    if (!$("liburBulan").value) $("liburBulan").value = bulanIni();
     $("btnCetak").hidden = !sesi.admin;
     isiInfoJam();
     isiFormKop();
@@ -409,6 +428,9 @@
     $("menuPin").open = false;
     $("menuLaporan").open = false;
     $("jamMenu").open = false;
+    $("liburMenu").open = false;
+    $("daftarLibur").replaceChildren();
+    ["liburTgl", "liburSampai", "liburKet", "liburBulan"].forEach((id) => ($(id).value = ""));
     tutupLembar();
     $("hasilLaporan").replaceChildren();
     $("bulanLaporan").value = "";
@@ -924,8 +946,7 @@
 
     // Tanda tangan
     const ttd = el("div", null, "ttd");
-    ttd.appendChild(blokTtd(["Mengetahui,", "Kepala Sekolah"], k.kepsekNama, k.kepsekNip ? "NIP. " + k.kepsekNip : ""));
-    ttd.appendChild(blokTtd([(k.kota ? k.kota + ", " : "") + tglPanjang(new Date()), "Admin Presensi"], sesi.nama, ""));
+    ttd.appendChild(blokTtd([(k.kota ? k.kota + ", " : "") + tglPanjang(new Date()), "Kepala Sekolah,"], k.kepsekNama, k.kepsekNip ? "NIP. " + k.kepsekNip : ""));
     kertas.appendChild(ttd);
   }
 
@@ -1063,6 +1084,55 @@
     if (h && h.ok) { sesi.adaLogo = false; isiFormKop(); }
   }
 
+  // ---------- Hari libur ----------
+  async function muatDaftarLibur() {
+    const bulan = $("liburBulan").value || bulanIni();
+    setBusy(true);
+    try {
+      const h = await kirim({ aksi: "libur_daftar", nip: sesi.nip, pin: sesi.pin, bulan });
+      if (!h.ok) { show("err", h.pesan); return; }
+      const box = $("daftarLibur");
+      box.replaceChildren();
+      if (!h.libur.length) { box.appendChild(el("p", "Belum ada hari libur pada " + namaBulan(h.bulan) + ".", "lap-info")); return; }
+      h.libur.forEach((l) => {
+        const baris = el("div", null, "baris");
+        baris.appendChild(el("strong", namaHari(l.tanggal)));
+        baris.appendChild(el("small", l.keterangan));
+        const hapus = el("button", "Hapus", "nama-btn");
+        hapus.addEventListener("click", () => hapusLibur(l));
+        const w = el("small");
+        w.appendChild(hapus);
+        baris.appendChild(w);
+        box.appendChild(baris);
+      });
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function tambahLibur() {
+    const tanggal = $("liburTgl").value;
+    if (!tanggal) { show("err", "Tanggal libur wajib diisi."); return; }
+    const h = await panggil({
+      aksi: "libur_tambah", nip: sesi.nip, pin: sesi.pin,
+      tanggal, sampai: $("liburSampai").value, keterangan: $("liburKet").value
+    });
+    if (h && h.ok) {
+      $("liburSampai").value = "";
+      $("liburKet").value = "";
+      $("liburBulan").value = tanggal.slice(0, 7); // tampilkan bulan yang baru ditambah
+      await muatDaftarLibur();
+    }
+  }
+
+  async function hapusLibur(l) {
+    if (!confirm("Hapus hari libur " + namaHari(l.tanggal) + (l.keterangan ? " (" + l.keterangan + ")" : "") + "?")) return;
+    const h = await panggil({ aksi: "libur_hapus", nip: sesi.nip, pin: sesi.pin, tanggal: l.tanggal });
+    if (h && h.ok) await muatDaftarLibur();
+  }
+
   async function simpanJam() {
     const jamMasuk = $("jamMasuk").value;
     const jamPulang = $("jamPulang").value;
@@ -1189,6 +1259,9 @@
   $("pin").addEventListener("keydown", (e) => { if (e.key === "Enter") login(); });
   document.querySelectorAll(".pilih").forEach((b) => b.addEventListener("click", () => { pilihStatus(b.dataset.st); hideStatus(); }));
   $("btnKirimIzin").addEventListener("click", kirimIzinSakit);
+  $("btnTambahLibur").addEventListener("click", tambahLibur);
+  $("liburBulan").addEventListener("change", muatDaftarLibur);
+  $("liburMenu").addEventListener("toggle", () => { if ($("liburMenu").open) muatDaftarLibur(); });
   $("btnSimpanJam").addEventListener("click", simpanJam);
   $("btnSimpanKop").addEventListener("click", simpanKop);
   $("btnHapusLogo").addEventListener("click", hapusLogo);
