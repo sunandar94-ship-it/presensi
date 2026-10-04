@@ -115,6 +115,7 @@
   .tabel { width: 100%; border-collapse: collapse; }
   .tabel th, .tabel td { padding: 7px 4px; border-bottom: 1px solid var(--line); text-align: center; }
   .tabel th:first-child, .tabel td:first-child { text-align: left; }
+  .tabel td small { display: block; color: var(--muted); font-size: .75rem; }
   .nama-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; text-align: left; text-decoration: underline; cursor: pointer; }
   .lap-judul { margin: 0 0 6px; font-weight: 600; }
   .lap-info { margin: 6px 0 0; color: var(--muted); font-size: .78rem; }
@@ -185,6 +186,7 @@
   <section id="sesi" hidden>
     <p class="sapa" id="sapa"></p>
 
+    <div id="blokPresensi">
     <p class="sub">Pilih status kehadiran Anda hari ini.</p>
     <div class="status4" role="group" aria-label="Status kehadiran">
       <button class="secondary pilih" data-st="Hadir" aria-pressed="false">Hadir</button>
@@ -220,13 +222,14 @@
       <input id="fotoBukti" type="file" accept="image/*">
       <button class="primary full" id="btnKirimIzin">Kirim</button>
     </div>
+    </div>
 
     <details id="menuLaporan">
       <summary>Laporan presensi</summary>
       <label for="bulanLaporan">Bulan</label>
       <input id="bulanLaporan" type="month" placeholder="2026-10">
       <button class="secondary full" id="btnLapSaya">Lihat rekap saya</button>
-      <button class="secondary full" id="btnLapSemua" hidden>Rekap semua guru</button>
+      <button class="secondary full" id="btnLapSemua" hidden>Rekap Semua Guru Hari Ini</button>
       <button class="secondary full" id="btnCetak" hidden>Cetak rekap formal (matriks)</button>
       <div id="hasilLaporan"></div>
     </details>
@@ -352,6 +355,8 @@
     $("sapa").textContent = "Halo, " + sesi.nama;
     $("adminMenu").hidden = !sesi.admin;
     $("btnLapSemua").hidden = !sesi.admin;
+    $("btnLapSaya").hidden = sesi.admin;      // admin tidak melakukan presensi
+    $("blokPresensi").hidden = sesi.admin;
     $("jamMenu").hidden = !sesi.admin;
     $("btnCetak").hidden = !sesi.admin;
     isiInfoJam();
@@ -735,30 +740,50 @@
   const namaHari = (t) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "short", day: "numeric", month: "short" })
     .format(new Date(t + "T12:00:00+07:00"));
 
-  function tampilRekap(h) {
+  const jamPendek = (j) => String(j || "").slice(0, 5);
+  const tglLengkap = (t) => new Intl.DateTimeFormat("id-ID", { timeZone: "Asia/Jakarta", weekday: "long", day: "numeric", month: "long", year: "numeric" })
+    .format(new Date(t + "T12:00:00+07:00"));
+
+  function tampilHariIni(h) {
     const box = $("hasilLaporan");
     box.replaceChildren();
-    box.appendChild(el("p", "Rekap semua guru, " + namaBulan(h.bulan), "lap-judul"));
-    if (!h.rekap.length) { box.appendChild(el("p", "Belum ada data guru.", "lap-info")); return; }
+    box.appendChild(el("p", "Rekap Semua Guru Hari Ini", "lap-judul"));
+    box.appendChild(el("p", tglLengkap(h.tanggal), "lap-info"));
+    const segarkan = el("button", "↻ Muat ulang", "nama-btn");
+    segarkan.addEventListener("click", rekapHariIni);
+    box.appendChild(segarkan);
 
+    if (!h.hariKerja) {
+      box.appendChild(el("p", h.libur ? "Hari ini hari libur: " + h.libur + "." : "Hari ini bukan hari kerja (Senin sampai Jumat).", "lap-info"));
+    }
+    const r = h.ringkas;
+    box.appendChild(el("p", "Guru " + r.total + " · Hadir " + r.hadir + " (terlambat " + r.terlambat + ") · Izin " + r.izin +
+      " · Sakit " + r.sakit + " · Dinas luar " + r.dinas + (h.hariKerja ? " · Belum presensi " + r.belum : ""), "lap-info"));
+
+    if (!h.guru.length) { box.appendChild(el("p", "Belum ada data guru.", "lap-info")); return; }
     const tabel = el("table", null, "tabel");
     const kepala = el("tr");
-    ["Nama", "H", "T", "I", "S", "DL", "A"].forEach((t) => kepala.appendChild(el("th", t)));
+    ["Nama", "Status", "Masuk", "Pulang"].forEach((t) => kepala.appendChild(el("th", t)));
     tabel.appendChild(kepala);
-    h.rekap.forEach((r) => {
+    h.guru.forEach((g) => {
       const tr = el("tr");
       const td = el("td");
-      const b = el("button", r.nama, "nama-btn");
-      b.addEventListener("click", () => laporan({ nipTarget: r.nip }));
+      const b = el("button", g.nama, "nama-btn");
+      b.addEventListener("click", () => laporan({ nipTarget: g.nip }));
       td.appendChild(b);
+      if (g.keterangan) td.appendChild(el("small", g.keterangan));
+      const bukti = tautan("Bukti", g.bukti);
+      if (bukti) { const l = el("small"); l.appendChild(bukti); td.appendChild(l); }
       tr.appendChild(td);
-      [r.hadir, r.terlambat, r.izin, r.sakit, r.dinas, r.alpa].forEach((n) => tr.appendChild(el("td", String(n))));
+      tr.appendChild(el("td", g.status === "Terlambat" ? "Terlambat " + g.masukSel + " mnt" : g.status));
+      tr.appendChild(el("td", jamPendek(g.masuk) || "-"));
+      tr.appendChild(el("td", jamPendek(g.pulang) || "-"));
       tabel.appendChild(tr);
     });
     const gulung = el("div", null, "scroll");
     gulung.appendChild(tabel);
     box.appendChild(gulung);
-    box.appendChild(el("p", "H hadir, T terlambat (sudah termasuk H), I izin, S sakit, DL dinas luar, A alpa (hari kerja yang sudah lewat tanpa data, tidak termasuk hari libur). Ketuk nama untuk melihat rincian.", "lap-info"));
+    box.appendChild(el("p", "Ketuk nama untuk melihat rincian bulan yang dipilih. Akun admin tidak termasuk.", "lap-info"));
   }
 
   function tampilDetail(h) {
@@ -766,8 +791,8 @@
     box.replaceChildren();
 
     if (sesi.admin && h.nip !== sesi.nip) {
-      const kembali = el("button", "← Kembali ke rekap", "nama-btn");
-      kembali.addEventListener("click", () => laporan({ semua: true }));
+      const kembali = el("button", "← Kembali ke rekap hari ini", "nama-btn");
+      kembali.addEventListener("click", rekapHariIni);
       box.appendChild(kembali);
     }
     box.appendChild(el("p", h.nama + ", " + namaBulan(h.bulan), "lap-judul"));
@@ -944,7 +969,7 @@
       const h = await kirim(Object.assign({ aksi: "laporan", nip: sesi.nip, pin: sesi.pin, bulan }, extra));
       if (!h.ok) { show("err", h.pesan); return; }
       hideStatus();
-      if (h.mode === "rekap") tampilRekap(h); else tampilDetail(h);
+      tampilDetail(h);
     } catch (err) {
       show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
     } finally {
@@ -1048,6 +1073,21 @@
     }
     const h = await panggil({ aksi: "atur_jam", nip: sesi.nip, pin: sesi.pin, jamMasuk, jamPulang, toleransi: Number(tol) });
     if (h && h.ok) { sesi.jam = h.jam; isiInfoJam(); }
+  }
+
+  async function rekapHariIni() {
+    setBusy(true);
+    try {
+      show("info", "Mengambil rekap hari ini…");
+      const h = await kirim({ aksi: "hari_ini", nip: sesi.nip, pin: sesi.pin });
+      if (!h.ok) { show("err", h.pesan); return; }
+      hideStatus();
+      tampilHariIni(h);
+    } catch (err) {
+      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function daftarSendiri() {
@@ -1157,7 +1197,7 @@
   $("btnCetakKertas").addEventListener("click", () => window.print());
   $("btnTutupLembar").addEventListener("click", tutupLembar);
   $("btnLapSaya").addEventListener("click", () => laporan({}));
-  $("btnLapSemua").addEventListener("click", () => laporan({ semua: true }));
+  $("btnLapSemua").addEventListener("click", rekapHariIni);
   $("btnMasuk").addEventListener("click", () => presensi("Masuk"));
   $("btnPulang").addEventListener("click", () => presensi("Pulang"));
   $("btnDaftar").addEventListener("click", daftarSendiri);
