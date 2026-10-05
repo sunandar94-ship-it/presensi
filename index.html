@@ -288,6 +288,22 @@
       <input id="jamPulang" type="time">
       <button class="secondary full" id="btnSimpanJam">Simpan jam kerja</button>
 
+      <p class="sec">Titik koordinat sekolah</p>
+      <p class="sub" id="lokasiInfo"></p>
+      <p class="sub">Cara tercepat: berdiri di tengah area sekolah, di tempat terbuka, lalu ketuk tombol di bawah. Radius yang terlalu kecil membuat guru yang berada di dalam gedung sering ditolak.</p>
+      <button class="secondary full" id="btnLokasiSaya">Gunakan lokasi saya sekarang</button>
+      <p class="lap-info" id="lokasiAkurasiInfo"></p>
+      <label for="lokLat">Latitude (lintang)</label>
+      <input id="lokLat" inputmode="decimal" placeholder="mis. -6.200000">
+      <label for="lokLng">Longitude (bujur)</label>
+      <input id="lokLng" inputmode="decimal" placeholder="mis. 106.816666">
+      <label for="lokRadius">Radius presensi (meter)</label>
+      <input id="lokRadius" type="number" inputmode="numeric" min="10" max="5000">
+      <label for="lokAkurasi">Batas akurasi GPS (meter)</label>
+      <input id="lokAkurasi" type="number" inputmode="numeric" min="10" max="500">
+      <p class="sub"><a id="lokasiPeta" class="tautan" target="_blank" rel="noopener noreferrer" hidden>Lihat titik di Google Maps</a></p>
+      <button class="secondary full" id="btnSimpanLokasi">Simpan titik koordinat</button>
+
       <p class="sec">Kop surat dan penandatangan</p>
       <p class="sub">Dipakai pada cetak rekap formal.</p>
       <label for="kopInstansi1">Instansi, baris 1</label>
@@ -380,6 +396,7 @@
     $("btnCetak").hidden = !sesi.admin;
     isiInfoJam();
     isiFormKop();
+    isiFormLokasi();
     if (!$("bulanLaporan").value) $("bulanLaporan").value = bulanIni();
     pilihStatus(stPilih);
     hideStatus();
@@ -669,7 +686,7 @@
       const h = await kirim({ aksi: "status", nip, pin });
       if (!h.ok) { show("err", h.pesan); return; }
       try { localStorage.setItem("nip", nip); } catch (e) {}
-      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam, kop: h.kop, adaLogo: h.adaLogo };
+      sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam, kop: h.kop, adaLogo: h.adaLogo, lokasi: h.lokasi };
       tampilSesi();
     } catch (err) {
       show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
@@ -998,6 +1015,71 @@
     }
   }
 
+  // ---------- Pengaturan titik koordinat ----------
+  /** Angka dari isian; koma desimal ("-6,2") diterima. Kosong atau bukan angka menghasilkan NaN. */
+  function angka(teks) {
+    const t = String(teks).trim().replace(",", ".");
+    return t === "" ? NaN : Number(t);
+  }
+
+  function perbaruiPeta() {
+    const lat = angka($("lokLat").value), lng = angka($("lokLng").value);
+    const a = $("lokasiPeta");
+    if (isFinite(lat) && isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      a.href = "https://www.google.com/maps?q=" + lat + "," + lng;
+      a.hidden = false;
+    } else {
+      a.hidden = true;
+    }
+  }
+
+  function isiFormLokasi() {
+    const l = (sesi && sesi.lokasi) || null;
+    $("lokasiInfo").textContent = !l ? "" : l.diatur
+      ? "Titik koordinat sudah diatur."
+      : "Titik koordinat belum diatur: aplikasi masih memakai nilai contoh. Isi dengan koordinat sekolah sebelum guru mulai presensi.";
+    if (l) {
+      $("lokLat").value = l.lat;
+      $("lokLng").value = l.lng;
+      $("lokRadius").value = l.radius;
+      $("lokAkurasi").value = l.akurasi;
+    }
+    $("lokasiAkurasiInfo").textContent = "";
+    perbaruiPeta();
+  }
+
+  async function lokasiSaya() {
+    setBusy(true);
+    try {
+      show("info", "Mengambil lokasi…");
+      const pos = await getLocation();
+      $("lokLat").value = pos.coords.latitude.toFixed(6);
+      $("lokLng").value = pos.coords.longitude.toFixed(6);
+      const ak = Math.round(pos.coords.accuracy);
+      $("lokasiAkurasiInfo").textContent = "Akurasi GPS saat ini sekitar " + ak + " m." +
+        (ak > 50 ? " Kurang akurat; ulangi di tempat terbuka agar titiknya tepat." : "");
+      perbaruiPeta();
+      hideStatus();
+    } catch (err) {
+      show("err", err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function simpanLokasi() {
+    const lat = angka($("lokLat").value), lng = angka($("lokLng").value);
+    const radius = $("lokRadius").value.trim(), akurasi = $("lokAkurasi").value.trim();
+    if (!isFinite(lat) || Math.abs(lat) > 90) { show("err", "Latitude harus berupa angka antara -90 dan 90."); return; }
+    if (!isFinite(lng) || Math.abs(lng) > 180) { show("err", "Longitude harus berupa angka antara -180 dan 180."); return; }
+    if (!/^\d+$/.test(radius) || !/^\d+$/.test(akurasi)) { show("err", "Radius dan batas akurasi harus berupa angka bulat (meter)."); return; }
+    // Kesalahan umum: tanda minus hilang/berlebih. (Lintang dan bujur yang tertukar sudah tertangkap di atas karena bujur Indonesia > 90.)
+    if ((lat < -11.5 || lat > 6.5 || lng < 94 || lng > 142) &&
+        !confirm("Titik ini tampaknya di luar Indonesia. Periksa tanda minus pada angka, atau apakah latitude dan longitude tertukar. Tetap simpan?")) return;
+    const h = await panggil({ aksi: "atur_lokasi", nip: sesi.nip, pin: sesi.pin, lat, lng, radius: Number(radius), akurasi: Number(akurasi) });
+    if (h && h.ok) { sesi.lokasi = h.lokasi; isiFormLokasi(); }
+  }
+
   // ---------- Pengaturan kop surat ----------
   let logoBaru = ""; // base64 logo yang baru dipilih (belum disimpan)
 
@@ -1263,6 +1345,10 @@
   $("liburBulan").addEventListener("change", muatDaftarLibur);
   $("liburMenu").addEventListener("toggle", () => { if ($("liburMenu").open) muatDaftarLibur(); });
   $("btnSimpanJam").addEventListener("click", simpanJam);
+  $("btnLokasiSaya").addEventListener("click", lokasiSaya);
+  $("btnSimpanLokasi").addEventListener("click", simpanLokasi);
+  $("lokLat").addEventListener("input", perbaruiPeta);
+  $("lokLng").addEventListener("input", perbaruiPeta);
   $("btnSimpanKop").addEventListener("click", simpanKop);
   $("btnHapusLogo").addEventListener("click", hapusLogo);
   $("kopLogo").addEventListener("change", pilihLogo);
