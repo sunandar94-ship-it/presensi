@@ -87,6 +87,8 @@
   .matriks td.nama { padding: 1px 4px; text-align: left; white-space: nowrap; }
   .matriks td.nama small { display: block; color: #333; font-size: 8px; }
   .matriks th { background: #e8e8e8; }
+  .matriks td.jam { font-size: 8px; font-weight: 400; line-height: 1.25; white-space: nowrap; }
+  .matriks td.jam div + div { border-top: 1px dotted #777; }
   .matriks .hr { font-size: 8px; font-weight: 400; }
   .k-A { background: #f4d4d4; font-weight: 700; }
   .k-T { background: #fbeac2; font-weight: 700; }
@@ -457,14 +459,33 @@
     hideStatus();
   }
 
+  const BATAS_KIRIM_MS = 60000;
+
+  /** Kirim ke server dengan batas waktu agar layar tidak berputar tanpa akhir bila server/koneksi macet. */
   async function kirim(data) {
-    const res = await fetch(API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(data)
-    });
-    return res.json();
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), BATAS_KIRIM_MS);
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(data),
+        signal: ctrl.signal
+      });
+      return await res.json();
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        const e = new Error("Server tidak merespons (lebih dari " + BATAS_KIRIM_MS / 1000 + " detik). Periksa koneksi internet, lalu coba lagi.");
+        e.tampil = true;
+        throw e;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
+
+  const galatJaringan = (err) => (err && err.tampil ? err.message : "Tidak dapat terhubung ke server. Periksa koneksi internet.");
 
   /** Kirim satu permintaan sederhana (tanpa kamera/lokasi) dan tampilkan hasilnya. */
   async function panggil(data) {
@@ -475,7 +496,7 @@
       show(h.ok ? "ok" : "err", h.pesan);
       return h;
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
       return null;
     } finally {
       setBusy(false);
@@ -485,11 +506,22 @@
   // ---------- Model & kamera ----------
   async function loadModels() {
     if (modelsReady) return;
-    await Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-    ]);
+    if (typeof faceapi === "undefined") {
+      throw new Error("Pustaka pengenalan wajah tidak termuat. Periksa koneksi internet, lalu muat ulang halaman.");
+    }
+    let timer;
+    const batas = new Promise((_, tolak) => {
+      timer = setTimeout(() => tolak(new Error("Model pengenalan wajah gagal dimuat (koneksi lambat atau diblokir). Periksa internet, lalu coba lagi.")), 60000);
+    });
+    try {
+      await Promise.race([Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]), batas]);
+    } finally {
+      clearTimeout(timer);
+    }
     modelsReady = true;
   }
 
@@ -689,7 +721,7 @@
       sesi = { nip, pin, nama: h.nama, admin: h.admin, terdaftar: h.terdaftar, jam: h.jam, kop: h.kop, adaLogo: h.adaLogo, lokasi: h.lokasi };
       tampilSesi();
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
     } finally {
       setBusy(false);
     }
@@ -945,7 +977,16 @@
       const td = el("td", g.nama, "nama");
       td.appendChild(el("small", g.nip));
       tr.appendChild(td);
-      g.sel.forEach((k) => tr.appendChild(el("td", k, k ? "k-" + k : "")));
+      g.sel.forEach((k, j) => {
+        if (k === "H" || k === "T") { // hari hadir: jam masuk di atas, jam pulang di bawah
+          const td2 = el("td", null, "jam" + (k === "T" ? " k-T" : ""));
+          td2.appendChild(el("div", (g.masuk && g.masuk[j]) || "-"));
+          td2.appendChild(el("div", (g.pulang && g.pulang[j]) || "-"));
+          tr.appendChild(td2);
+        } else {
+          tr.appendChild(el("td", k, k ? "k-" + k : ""));
+        }
+      });
       [g.hadir, g.terlambat, g.izin, g.sakit, g.dinas, g.alpa].forEach((x) => tr.appendChild(el("td", String(x))));
       badan.appendChild(tr);
     });
@@ -953,8 +994,8 @@
 
     // Catatan
     const cat = el("div", null, "catatan");
-    cat.appendChild(el("p", "Keterangan: H = hadir tepat waktu; T = hadir terlambat; I = izin; S = sakit; D = dinas luar; A = alpa (hari kerja tanpa presensi, izin, sakit, atau dinas luar); kosong = hari kerja yang belum berlangsung."));
-    cat.appendChild(el("p", "Kolom Jumlah: H = total hadir (termasuk yang terlambat), T = jumlah hari terlambat, I, S, D, A = jumlah hari menurut kode di atas."));
+    cat.appendChild(el("p", "Keterangan: pada hari hadir, baris atas = jam masuk dan baris bawah = jam pulang (tanda strip berarti belum presensi), latar kuning = terlambat; I = izin; S = sakit; D = dinas luar; A = alpa (hari kerja tanpa presensi, izin, sakit, atau dinas luar); kosong = hari kerja yang belum berlangsung."));
+    cat.appendChild(el("p", "Kolom Jumlah: H = total hari hadir (termasuk yang terlambat), T = jumlah hari terlambat, I, S, D, A = jumlah hari menurut keterangan di atas."));
     let libur = "Hari kerja Senin sampai Jumat. Hari libur tidak dihitung";
     if (h.libur.length) libur += ": " + h.libur.map((l) => tglPendek(l.tanggal) + (l.keterangan ? " (" + l.keterangan + ")" : "")).join(", ");
     cat.appendChild(el("p", libur + "."));
@@ -986,7 +1027,7 @@
       $("lembarCetak").hidden = false;
       $("lembarCetak").scrollTop = 0;
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
     } finally {
       setBusy(false);
     }
@@ -1009,7 +1050,7 @@
       hideStatus();
       tampilDetail(h);
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
     } finally {
       setBusy(false);
     }
@@ -1188,7 +1229,7 @@
         box.appendChild(baris);
       });
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
     } finally {
       setBusy(false);
     }
@@ -1236,7 +1277,7 @@
       hideStatus();
       tampilHariIni(h);
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
     } finally {
       setBusy(false);
     }
@@ -1270,7 +1311,7 @@
       if (!s.ok) { show("err", s.pesan); return; }
       target = s.target;
     } catch (err) {
-      show("err", "Tidak dapat terhubung ke server. Periksa koneksi internet.");
+      show("err", galatJaringan(err));
       return;
     } finally {
       setBusy(false);
